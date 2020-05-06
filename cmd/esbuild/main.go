@@ -1,13 +1,6 @@
 package main
 
 import (
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/bundler"
-	"github.com/evanw/esbuild/internal/fs"
-	"github.com/evanw/esbuild/internal/lexer"
-	"github.com/evanw/esbuild/internal/logging"
-	"github.com/evanw/esbuild/internal/parser"
-	"github.com/evanw/esbuild/internal/resolver"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -17,6 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/bundler"
+	"github.com/prantlf/esbuild/internal/fs"
+	"github.com/prantlf/esbuild/internal/lexer"
+	"github.com/prantlf/esbuild/internal/logging"
+	"github.com/prantlf/esbuild/internal/parser"
+	"github.com/prantlf/esbuild/internal/resolver"
 )
 
 type argsObject struct {

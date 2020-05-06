@@ -1,8 +1,9 @@
 package bundler
 
 import (
-	"github.com/evanw/esbuild/internal/parser"
 	"testing"
+
+	"github.com/prantlf/esbuild/internal/parser"
 )
 
 func TestTSDeclareConst(t *testing.T) {

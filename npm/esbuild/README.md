@@ -1,6 +1,6 @@
 # esbuild
 
-This is a JavaScript bundler and minifier. See https://github.com/evanw/esbuild for details.
+This is a JavaScript bundler and minifier. See https://github.com/prantlf/esbuild for details.
 
 ## JavaScript API usage
 
@@ -26,7 +26,7 @@ const options = {
 build(options).catch(() => process.exit(1))
 ```
 
-See [the TypeScript type definitions](https://github.com/evanw/esbuild/blob/master/npm/esbuild/lib/main.d.ts) for the complete set of options.
+See [the TypeScript type definitions](https://github.com/prantlf/esbuild/blob/master/npm/esbuild/lib/main.d.ts) for the complete set of options.
 
 ### Transforming a file
 
@@ -61,4 +61,4 @@ Example usage:
 })()
 ```
 
-See [the TypeScript type definitions](https://github.com/evanw/esbuild/blob/master/npm/esbuild/lib/main.d.ts) for the complete set of options.
+See [the TypeScript type definitions](https://github.com/prantlf/esbuild/blob/master/npm/esbuild/lib/main.d.ts) for the complete set of options.

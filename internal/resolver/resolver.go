@@ -1,13 +1,14 @@
 package resolver
 
 import (
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/fs"
-	"github.com/evanw/esbuild/internal/lexer"
-	"github.com/evanw/esbuild/internal/logging"
-	"github.com/evanw/esbuild/internal/parser"
 	"strings"
 	"sync"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/fs"
+	"github.com/prantlf/esbuild/internal/lexer"
+	"github.com/prantlf/esbuild/internal/logging"
+	"github.com/prantlf/esbuild/internal/parser"
 )
 
 type ResolveStatus uint8

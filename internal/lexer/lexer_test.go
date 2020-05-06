@@ -1,12 +1,13 @@
 package lexer
 
 import (
-	"github.com/evanw/esbuild/internal/logging"
 	"fmt"
 	"math"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/prantlf/esbuild/internal/logging"
 )
 
 func assertEqual(t *testing.T, a interface{}, b interface{}) {

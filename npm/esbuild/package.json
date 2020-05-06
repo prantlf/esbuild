@@ -2,7 +2,7 @@
   "name": "esbuild",
   "version": "0.2.3",
   "description": "An extremely fast JavaScript bundler and minifier.",
-  "repository": "https://github.com/evanw/esbuild",
+  "repository": "https://github.com/prantlf/esbuild",
   "scripts": {
     "postinstall": "node install.js"
   },

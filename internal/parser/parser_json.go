@@ -1,10 +1,11 @@
 package parser
 
 import (
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/lexer"
-	"github.com/evanw/esbuild/internal/logging"
 	"fmt"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/lexer"
+	"github.com/prantlf/esbuild/internal/logging"
 )
 
 type jsonParser struct {

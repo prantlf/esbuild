@@ -7,15 +7,16 @@ package main
 
 import (
 	"encoding/binary"
-	"github.com/evanw/esbuild/internal/bundler"
-	"github.com/evanw/esbuild/internal/fs"
-	"github.com/evanw/esbuild/internal/logging"
-	"github.com/evanw/esbuild/internal/printer"
-	"github.com/evanw/esbuild/internal/resolver"
 	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
+
+	"github.com/prantlf/esbuild/internal/bundler"
+	"github.com/prantlf/esbuild/internal/fs"
+	"github.com/prantlf/esbuild/internal/logging"
+	"github.com/prantlf/esbuild/internal/printer"
+	"github.com/prantlf/esbuild/internal/resolver"
 )
 
 type responseType = map[string][]byte

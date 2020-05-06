@@ -2,14 +2,15 @@ package printer
 
 import (
 	"bytes"
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/lexer"
-	"github.com/evanw/esbuild/internal/runtime"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/lexer"
+	"github.com/prantlf/esbuild/internal/runtime"
 )
 
 var base64 = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")

@@ -1,11 +1,12 @@
 package parser
 
 import (
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/logging"
-	"github.com/evanw/esbuild/internal/printer"
 	"fmt"
 	"testing"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/logging"
+	"github.com/prantlf/esbuild/internal/printer"
 )
 
 func assertEqual(t *testing.T, a interface{}, b interface{}) {

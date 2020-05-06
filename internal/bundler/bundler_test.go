@@ -1,12 +1,13 @@
 package bundler
 
 import (
-	"github.com/evanw/esbuild/internal/fs"
-	"github.com/evanw/esbuild/internal/logging"
-	"github.com/evanw/esbuild/internal/parser"
-	"github.com/evanw/esbuild/internal/resolver"
 	"path"
 	"testing"
+
+	"github.com/prantlf/esbuild/internal/fs"
+	"github.com/prantlf/esbuild/internal/logging"
+	"github.com/prantlf/esbuild/internal/parser"
+	"github.com/prantlf/esbuild/internal/resolver"
 )
 
 func assertEqual(t *testing.T, a interface{}, b interface{}) {

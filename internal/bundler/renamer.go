@@ -1,10 +1,11 @@
 package bundler
 
 import (
-	"github.com/evanw/esbuild/internal/ast"
-	"github.com/evanw/esbuild/internal/lexer"
 	"sort"
 	"strconv"
+
+	"github.com/prantlf/esbuild/internal/ast"
+	"github.com/prantlf/esbuild/internal/lexer"
 )
 
 func computeReservedNames(moduleScopes []*ast.Scope, symbols *ast.SymbolMap) map[string]bool {

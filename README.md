@@ -2,6 +2,10 @@
 
 This is a JavaScript bundler and minifier. It packages up JavaScript and TypeScript code for distribution on the web.
 
+This is a fork of the original project demonstrating how to make it installable in `Go` projects by `go get`. For example:
+
+    go get -u github.com/prantlf/esbuild/...
+
 ## Why?
 
 Why build another JavaScript build tool? The current build tools for the web are at least an order of magnitude slower than they should be. I'm hoping that this project serves as an "existence proof" that our JavaScript tooling can be much, much faster.
