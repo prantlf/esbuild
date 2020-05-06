@@ -1,8 +1,8 @@
 package printer
 
 import (
-	"esbuild/logging"
-	"esbuild/parser"
+	"github.com/evanw/esbuild/internal/logging"
+	"github.com/evanw/esbuild/internal/parser"
 	"testing"
 )
 

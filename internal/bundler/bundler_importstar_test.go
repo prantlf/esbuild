@@ -1,7 +1,7 @@
 package bundler
 
 import (
-	"esbuild/parser"
+	"github.com/evanw/esbuild/internal/parser"
 	"testing"
 )
 

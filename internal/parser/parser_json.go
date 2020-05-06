@@ -1,9 +1,9 @@
 package parser
 
 import (
-	"esbuild/ast"
-	"esbuild/lexer"
-	"esbuild/logging"
+	"github.com/evanw/esbuild/internal/ast"
+	"github.com/evanw/esbuild/internal/lexer"
+	"github.com/evanw/esbuild/internal/logging"
 	"fmt"
 )
 

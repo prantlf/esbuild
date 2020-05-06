@@ -1,7 +1,7 @@
 package ast
 
 import (
-	"esbuild/runtime"
+	"github.com/evanw/esbuild/internal/runtime"
 	"path"
 	"strings"
 )

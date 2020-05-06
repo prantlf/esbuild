@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"esbuild/logging"
-	"esbuild/printer"
+	"github.com/evanw/esbuild/internal/logging"
+	"github.com/evanw/esbuild/internal/printer"
 	"fmt"
 	"testing"
 )

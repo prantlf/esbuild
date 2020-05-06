@@ -2,9 +2,9 @@ package printer
 
 import (
 	"bytes"
-	"esbuild/ast"
-	"esbuild/lexer"
-	"esbuild/runtime"
+	"github.com/evanw/esbuild/internal/ast"
+	"github.com/evanw/esbuild/internal/lexer"
+	"github.com/evanw/esbuild/internal/runtime"
 	"fmt"
 	"math"
 	"strconv"

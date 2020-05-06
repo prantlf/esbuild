@@ -1,14 +1,14 @@
 ESBUILD_VERSION = $(shell cat version.txt)
 
-esbuild: src/esbuild/*/*.go
-	cd src/esbuild && go build -o ../../esbuild ./main
+esbuild: cmd/esbuild/*/*.go
+	cd cmd/esbuild  && go build -o ../../esbuild
 
 test:
-	cd src/esbuild && go test ./...
+	cd internal && go test ./...
 	make -j3 verify-source-map end-to-end-tests js-api-tests
 
 test-wasm:
-	cd src/esbuild && PATH="$(shell go env GOROOT)/misc/wasm:$$PATH" GOOS=js GOARCH=wasm go test ./...
+	cd cmd/esbuild && PATH="$(shell go env GOROOT)/misc/wasm:$$PATH" GOOS=js GOARCH=wasm go test ./...
 
 verify-source-map: | node_modules
 	node scripts/verify-source-map.js
@@ -20,27 +20,27 @@ js-api-tests:
 	node scripts/js-api-tests.js
 
 update-version-go:
-	echo "package main\n\nconst esbuildVersion = \"$(ESBUILD_VERSION)\"" > src/esbuild/main/version.go
+	echo "package main\n\nconst esbuildVersion = \"$(ESBUILD_VERSION)\"" > cmd/esbuild/version.go
 
 platform-all: update-version-go test test-wasm
 	make -j5 platform-windows platform-darwin platform-linux platform-wasm platform-neutral
 
 platform-windows:
 	cd npm/esbuild-windows-64 && npm version "$(ESBUILD_VERSION)" --allow-same-version
-	cd src/esbuild && GOOS=windows GOARCH=amd64 go build -o ../../npm/esbuild-windows-64/esbuild.exe ./main
+	cd cmd/esbuild && GOOS=windows GOARCH=amd64 go build -o ../../npm/esbuild-windows-64/esbuild.exe
 
 platform-darwin:
 	mkdir -p npm/esbuild-darwin-64/bin
 	cd npm/esbuild-darwin-64 && npm version "$(ESBUILD_VERSION)" --allow-same-version
-	cd src/esbuild && GOOS=darwin GOARCH=amd64 go build -o ../../npm/esbuild-darwin-64/bin/esbuild ./main
+	cd cmd/esbuild && GOOS=darwin GOARCH=amd64 go build -o ../../npm/esbuild-darwin-64/bin/esbuild
 
 platform-linux:
 	mkdir -p npm/esbuild-linux-64/bin
 	cd npm/esbuild-linux-64 && npm version "$(ESBUILD_VERSION)" --allow-same-version
-	cd src/esbuild && GOOS=linux GOARCH=amd64 go build -o ../../npm/esbuild-linux-64/bin/esbuild ./main
+	cd cmd/esbuild && GOOS=linux GOARCH=amd64 go build -o ../../npm/esbuild-linux-64/bin/esbuild
 
 platform-wasm:
-	cd src/esbuild && GOOS=js GOARCH=wasm go build -o ../../npm/esbuild-wasm/esbuild.wasm ./main
+	cd cmd/esbuild && GOOS=js GOARCH=wasm go build -o ../../npm/esbuild-wasm/esbuild.wasm
 	cd npm/esbuild-wasm && npm version "$(ESBUILD_VERSION)" --allow-same-version
 	cp "$(shell go env GOROOT)/misc/wasm/wasm_exec.js" npm/esbuild-wasm/wasm_exec.js
 	rm -fr npm/esbuild-wasm/lib && cp -r npm/esbuild/lib npm/esbuild-wasm/lib
@@ -73,7 +73,7 @@ clean:
 	rm -rf npm/esbuild-linux-64/bin
 	rm -f npm/esbuild-wasm/esbuild.wasm npm/esbuild-wasm/wasm_exec.js
 	rm -rf npm/esbuild-wasm/lib
-	cd src/esbuild && go clean -testcache ./...
+	cd cmd/esbuild && go clean -testcache ./...
 
 node_modules:
 	npm ci
@@ -152,33 +152,33 @@ demo-three: demo-three-esbuild demo-three-rollup demo-three-webpack demo-three-p
 demo-three-esbuild: esbuild | demo/three
 	rm -fr demo/three/esbuild
 	mkdir -p demo/three/esbuild
-	cd demo/three/esbuild && time -p ../../../esbuild --bundle --name=THREE --sourcemap --minify ../src/Three.js --outfile=Three.esbuild.js
+	cd demo/three/esbuild && time -p ../../../esbuild --bundle --name=THREE --sourcemap --minify ../cmd/Three.js --outfile=Three.esbuild.js
 	du -h demo/three/esbuild/Three.esbuild.js*
 
 demo-three-rollup: | node_modules demo/three
 	rm -fr demo/three/rollup
 	mkdir -p demo/three/rollup
 	echo "$(THREE_ROLLUP_CONFIG)" > demo/three/rollup/config.js
-	cd demo/three/rollup && time -p ../../../node_modules/.bin/rollup ../src/Three.js -o Three.rollup.js -c config.js
+	cd demo/three/rollup && time -p ../../../node_modules/.bin/rollup ../cmd/Three.js -o Three.rollup.js -c config.js
 	du -h demo/three/rollup/Three.rollup.js*
 
 demo-three-webpack: | node_modules demo/three
 	rm -fr demo/three/webpack node_modules/.cache/terser-webpack-plugin
 	mkdir -p demo/three/webpack
-	cd demo/three/webpack && time -p ../../../node_modules/.bin/webpack ../src/Three.js $(THREE_WEBPACK_FLAGS) -o Three.webpack.js
+	cd demo/three/webpack && time -p ../../../node_modules/.bin/webpack ../cmd/Three.js $(THREE_WEBPACK_FLAGS) -o Three.webpack.js
 	du -h demo/three/webpack/Three.webpack.js*
 
 demo-three-parcel: | node_modules demo/three
 	rm -fr demo/three/parcel
 	mkdir -p demo/three/parcel
-	cd demo/three/parcel && time -p ../../../node_modules/.bin/parcel build ../src/Three.js $(THREE_PARCEL_FLAGS) --out-file Three.parcel.js
+	cd demo/three/parcel && time -p ../../../node_modules/.bin/parcel build ../cmd/Three.js $(THREE_PARCEL_FLAGS) --out-file Three.parcel.js
 	du -h demo/three/parcel/Three.parcel.js*
 
 demo-three-fusebox: | node_modules demo/three
 	rm -fr demo/three/fusebox
 	mkdir -p demo/three/fusebox
 	echo "$(THREE_FUSEBOX_RUN)" > demo/three/fusebox/run.js
-	echo 'import * as THREE from "../src/Three.js"; window.THREE = THREE' > demo/three/fusebox/fusebox-entry.js
+	echo 'import * as THREE from "../cmd/Three.js"; window.THREE = THREE' > demo/three/fusebox/fusebox-entry.js
 	cd demo/three/fusebox && time -p node run.js
 	du -h demo/three/fusebox/dist/app.js*
 
@@ -234,14 +234,14 @@ ROME_TSCONFIG +=   }
 ROME_TSCONFIG += }
 
 ROME_WEBPACK_CONFIG += module.exports = {
-ROME_WEBPACK_CONFIG +=   entry: '../src/entry.ts',
+ROME_WEBPACK_CONFIG +=   entry: '../cmd/entry.ts',
 ROME_WEBPACK_CONFIG +=   mode: 'production',
 ROME_WEBPACK_CONFIG +=   target: 'node',
 ROME_WEBPACK_CONFIG +=   devtool: 'sourcemap',
 ROME_WEBPACK_CONFIG +=   module: { rules: [{ test: /\.ts$$/, loader: 'ts-loader', options: { transpileOnly: true } }] },
 ROME_WEBPACK_CONFIG +=   resolve: {
 ROME_WEBPACK_CONFIG +=     extensions: ['.ts', '.js'],
-ROME_WEBPACK_CONFIG +=     alias: { rome: __dirname + '/../src/rome', '@romejs': __dirname + '/../src/@romejs' },
+ROME_WEBPACK_CONFIG +=     alias: { rome: __dirname + '/../cmd/rome', '@romejs': __dirname + '/../cmd/@romejs' },
 ROME_WEBPACK_CONFIG +=   },
 ROME_WEBPACK_CONFIG +=   output: { filename: 'rome.webpack.js', path: __dirname },
 ROME_WEBPACK_CONFIG += };
@@ -260,25 +260,25 @@ github/rome:
 bench/rome: | github/rome
 	mkdir -p bench/rome
 	cp -r github/rome/packages bench/rome/src
-	echo "$(ROME_TSCONFIG)" > bench/rome/src/tsconfig.json
-	echo 'import "rome/bin/rome"' > bench/rome/src/entry.ts
+	echo "$(ROME_TSCONFIG)" > bench/rome/cmd/tsconfig.json
+	echo 'import "rome/bin/rome"' > bench/rome/cmd/entry.ts
 
 	# Patch a cyclic import ordering issue that affects commonjs-style bundlers (webpack and parcel)
 	echo "export { default as createHook } from './api/createHook';" > .temp
-	sed "/createHook/d" bench/rome/src/@romejs/js-compiler/index.ts >> .temp
-	mv .temp bench/rome/src/@romejs/js-compiler/index.ts
+	sed "/createHook/d" bench/rome/cmd/@romejs/js-compiler/index.ts >> .temp
+	mv .temp bench/rome/cmd/@romejs/js-compiler/index.ts
 
 	# Fix a bug where parcel doesn't know about one specific node builtin module
-	mkdir -p bench/rome/src/node_modules/inspector
-	touch bench/rome/src/node_modules/inspector/index.js
+	mkdir -p bench/rome/cmd/node_modules/inspector
+	touch bench/rome/cmd/node_modules/inspector/index.js
 
 	# These aliases are required to fix parcel path resolution
-	echo '{ "alias": {' > bench/rome/src/package.json
-	ls bench/rome/src/@romejs | sed 's/.*/"\@romejs\/&": ".\/@romejs\/&",/g' >> bench/rome/src/package.json
-	echo '"rome": "./rome" }}' >> bench/rome/src/package.json
+	echo '{ "alias": {' > bench/rome/cmd/package.json
+	ls bench/rome/cmd/@romejs | sed 's/.*/"\@romejs\/&": ".\/@romejs\/&",/g' >> bench/rome/cmd/package.json
+	echo '"rome": "./rome" }}' >> bench/rome/cmd/package.json
 
 	# Get an approximate line count
-	rm -r bench/rome/src/@romejs/js-parser/test-fixtures
+	rm -r bench/rome/cmd/@romejs/js-parser/test-fixtures
 	echo 'Line count:' && (find bench/rome/src -name '*.ts' && find bench/rome/src -name '*.js') | xargs wc -l | tail -n 1
 
 ################################################################################
@@ -288,7 +288,7 @@ bench-rome: bench-rome-esbuild bench-rome-webpack bench-rome-parcel
 bench-rome-esbuild: esbuild | bench/rome
 	rm -fr bench/rome/esbuild
 	mkdir -p bench/rome/esbuild
-	cd bench/rome/esbuild && time -p ../../../esbuild --bundle --sourcemap --minify ../src/entry.ts --outfile=rome.esbuild.js --platform=node
+	cd bench/rome/esbuild && time -p ../../../esbuild --bundle --sourcemap --minify ../cmd/entry.ts --outfile=rome.esbuild.js --platform=node
 	du -h bench/rome/esbuild/rome.esbuild.js*
 
 bench-rome-webpack: | node_modules bench/rome
@@ -301,5 +301,5 @@ bench-rome-webpack: | node_modules bench/rome
 bench-rome-parcel: | node_modules bench/rome
 	rm -fr bench/rome/parcel
 	mkdir -p bench/rome/parcel
-	cd bench/rome/parcel && time -p ../../../node_modules/.bin/parcel build ../src/entry.ts $(ROME_PARCEL_FLAGS) --out-file rome.parcel.js
+	cd bench/rome/parcel && time -p ../../../node_modules/.bin/parcel build ../cmd/entry.ts $(ROME_PARCEL_FLAGS) --out-file rome.parcel.js
 	du -h bench/rome/parcel/rome.parcel.js*

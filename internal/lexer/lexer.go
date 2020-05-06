@@ -14,8 +14,8 @@ package lexer
 // accurately.
 
 import (
-	"esbuild/ast"
-	"esbuild/logging"
+	"github.com/evanw/esbuild/internal/ast"
+	"github.com/evanw/esbuild/internal/logging"
 	"fmt"
 	"strconv"
 	"strings"

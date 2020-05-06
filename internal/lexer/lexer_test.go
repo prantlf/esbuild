@@ -1,7 +1,7 @@
 package lexer
 
 import (
-	"esbuild/logging"
+	"github.com/evanw/esbuild/internal/logging"
 	"fmt"
 	"math"
 	"strings"
