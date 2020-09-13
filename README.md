@@ -4,7 +4,9 @@ This is a JavaScript bundler and minifier. It packages up JavaScript and TypeScr
 
 This is a fork of the original project demonstrating how to make it installable in `Go` projects by `go get`. For example:
 
-    go get -u github.com/prantlf/esbuild/...
+    GO111MODULE=off go get -u github.com/prantlf/esbuild/...@308fdf459d65
+
+ **UPDATE:** This change has been made in the [original repository](https://github.com/evanw/esbuild#esbuild) ([764109e](https://github.com/evanw/esbuild/commit/764109effefbd2302e0f2df301b82dce6ef8024e), [0d4c970](https://github.com/evanw/esbuild/commit/0d4c9705da29859f7587ab9ce3c3314c8efaa978), [a94685d](https://github.com/evanw/esbuild/commit/a94685dd3afdbb2c92de5fee1a803123db1d9222)). Please, use the original project. I will let this fork open for the time being to test experimental extensions.
 
 ## Why?
 
