@@ -1607,3 +1607,50 @@ func (cache *runtimeCache) processedDefines(key config.Platform) (defines *confi
 	cache.definesMap[key] = defines
 	return
 }
+
+type analysedModule struct {
+	source            logger.Path
+	jsonMetadataChunk []byte
+}
+
+func (b *Bundle) Analyse() []byte {
+	return generateMetadataJSON(collectModules(b.files, &b.res), &b.res)
+}
+
+func collectModules(files []file, res *resolver.Resolver) []analysedModule {
+	analysedModules := make([]analysedModule, 0, len(files))
+	for _, file := range files {
+		if file.source.KeyPath.Namespace != "file" {
+			continue
+		}
+		analysedModules = append(analysedModules, analysedModule{
+			file.source.KeyPath, file.jsonMetadataChunk,
+		})
+	}
+	return analysedModules
+}
+
+func generateMetadataJSON(analysedModules []analysedModule, res *resolver.Resolver) []byte {
+	// Sort files by key path for determinism
+	sorted := make(indexAndPathArray, 0, len(analysedModules))
+	for sourceIndex, analysedModule := range analysedModules {
+		sorted = append(sorted, indexAndPath{uint32(sourceIndex), analysedModule.source})
+	}
+	sort.Sort(sorted)
+
+	j := js_printer.Joiner{}
+	j.AddString("{\n  \"inputs\": {")
+
+	// Write inputs
+	for i, file := range sorted {
+		if i > 0 {
+			j.AddString(",\n    ")
+		} else {
+			j.AddString("\n    ")
+		}
+		j.AddBytes(analysedModules[file.sourceIndex].jsonMetadataChunk)
+	}
+
+	j.AddString("\n  }\n}\n")
+	return j.Done()
+}
