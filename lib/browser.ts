@@ -18,12 +18,20 @@ export const transform: typeof types.transform = () => {
   throw new Error(`The "transform" API only works in node`);
 };
 
+export const analyse: typeof types.analyse = () => {
+  throw new Error(`The "analyse" API only works in node`);
+};
+
 export const buildSync: typeof types.buildSync = () => {
   throw new Error(`The "buildSync" API only works in node`);
 };
 
 export const transformSync: typeof types.transformSync = () => {
   throw new Error(`The "transformSync" API only works in node`);
+};
+
+export const analyseSync: typeof types.analyseSync = () => {
+  throw new Error(`The "analyseSync" API only works in node`);
 };
 
 export const startService: typeof types.startService = common.referenceCountedService(() => '', async (options) => {
@@ -89,6 +97,10 @@ export const startService: typeof types.startService = common.referenceCountedSe
           writeFile(_, callback) { callback(null); },
         }, (err, res) => err ? reject(err) : resolve(res!)))
     },
+    analyse: (options: types.AnalyseOptions): Promise<any> =>
+      new Promise<types.AnalyseResult>((resolve, reject) =>
+        service.analyse(options, false, (err, res) =>
+          err ? reject(err) : resolve(res as types.AnalyseResult))),
     serve() {
       throw new Error(`The "serve" API only works in node`)
     },
@@ -97,6 +109,9 @@ export const startService: typeof types.startService = common.referenceCountedSe
     },
     transformSync() {
       throw new Error(`The "transformSync" API only works in node`);
+    },
+    analyseSync() {
+      throw new Error(`The "analyseSync" API only works in node`);
     },
     stop() {
       worker.terminate()

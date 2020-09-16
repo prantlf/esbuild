@@ -25,6 +25,8 @@ var helpText = func(colors logger.Colors) string {
   ` + colors.Underline + `https://github.com/evanw/esbuild` + colors.Default + `
 
 ` + colors.Bold + `Simple options:` + colors.Default + `
+Options:
+  --analyse             Collect metadata about the source modules
   --bundle              Bundle all dependencies into the output files
   --define:K=V          Substitute K with V while parsing
   --external:M          Exclude module M from the bundle
