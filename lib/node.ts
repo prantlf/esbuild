@@ -68,6 +68,14 @@ export let transform: typeof types.transform = (input, options) => {
   });
 };
 
+export let analyse: typeof types.analyse = options => {
+  return startService().then(service => {
+    let promise = service.analyse(options);
+    promise.then(service.stop, service.stop); // Kill the service afterwards
+    return promise;
+  });
+};
+
 export let buildSync: typeof types.buildSync = options => {
   let result: types.BuildResult;
   runServiceSync(service => service.build(options, isTTY(), (err, res) => {
@@ -102,6 +110,15 @@ export let transformSync: typeof types.transformSync = (input, options) => {
       }
     },
   }, (err, res) => {
+    if (err) throw err;
+    result = res!;
+  }));
+  return result!;
+};
+
+export let analyseSync: typeof types.analyseSync = options => {
+  let result: types.AnalyseResult;
+  runServiceSync(service => service.analyse(options, isTTY(), (err, res) => {
     if (err) throw err;
     result = res!;
   }));
@@ -161,6 +178,10 @@ export let startService: typeof types.startService = options => {
             }
           },
         }, (err, res) => err ? reject(err) : resolve(res!))),
+    analyse: options =>
+      new Promise((resolve, reject) =>
+        service.analyse(options, isTTY(), (err, res) =>
+          err ? reject(err) : resolve(res!))),
     stop() { child.kill(); },
   });
 };
