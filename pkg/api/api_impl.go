@@ -1102,6 +1102,164 @@ func transformImpl(input string, transformOpts TransformOptions) TransformResult
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Analyse API
+
+func analyseImpl(analyseOpts AnalyseOptions) AnalyseResult {
+	logOptions := logger.OutputOptions{
+		IncludeSource: true,
+		ErrorLimit:    analyseOpts.ErrorLimit,
+		Color:         validateColor(analyseOpts.Color),
+		LogLevel:      validateLogLevel(analyseOpts.LogLevel),
+	}
+	log := logger.NewStderrLog(logOptions)
+
+	// Validate that the current working directory is an absolute path
+	realFS, err := fs.RealFS(fs.RealFSOptions{
+		AbsWorkingDir: analyseOpts.AbsWorkingDir,
+	})
+	if err != nil {
+		log.AddError(nil, logger.Loc{}, err.Error())
+		return AnalyseResult{Errors: convertMessagesToPublic(logger.Error, log.Done())}
+	}
+
+	plugins := loadPlugins(realFS, log, analyseOpts.Plugins)
+	caches := cache.MakeCacheSet()
+
+	// Convert and validate the analyseOpts
+	jsFeatures, cssFeatures := validateFeatures(log, analyseOpts.Target, analyseOpts.Engines)
+	defines, injectedDefines := validateDefines(log, analyseOpts.Define, analyseOpts.Pure)
+	options := config.Options{
+		UnsupportedJSFeatures:  jsFeatures,
+		UnsupportedCSSFeatures: cssFeatures,
+		JSX: config.JSXOptions{
+			Factory:  validateJSX(log, analyseOpts.JSXFactory, "factory"),
+			Fragment: validateJSX(log, analyseOpts.JSXFragment, "fragment"),
+		},
+		Defines:           defines,
+		InjectedDefines:   injectedDefines,
+		Platform:          validatePlatform(analyseOpts.Platform),
+		GlobalName:        validateGlobalName(log, analyseOpts.GlobalName),
+		CodeSplitting:     analyseOpts.Splitting,
+		AbsMetadataFile:   validatePath(log, realFS, analyseOpts.Metafile, "metafile path"),
+		ExtensionToLoader: validateLoaders(log, analyseOpts.Loader),
+		ExtensionOrder:    validateResolveExtensions(log, analyseOpts.ResolveExtensions),
+		ExternalModules:   validateExternals(log, realFS, analyseOpts.External),
+		TsConfigOverride:  validatePath(log, realFS, analyseOpts.Tsconfig, "tsconfig path"),
+		MainFields:        analyseOpts.MainFields,
+		Plugins:           plugins,
+	}
+	for i, path := range analyseOpts.NodePaths {
+		options.AbsNodePaths[i] = validatePath(log, realFS, path, "node path")
+	}
+	entryPoints := append([]string{}, analyseOpts.EntryPoints...)
+	if analyseOpts.Stdin != nil {
+		options.Stdin = &config.StdinInfo{
+			Loader:        validateLoader(analyseOpts.Stdin.Loader),
+			Contents:      analyseOpts.Stdin.Contents,
+			SourceFile:    analyseOpts.Stdin.Sourcefile,
+			AbsResolveDir: validatePath(log, realFS, analyseOpts.Stdin.ResolveDir, "resolve directory path"),
+		}
+	}
+
+	if options.AbsMetadataFile != "" {
+		// If the output file is specified, use it to derive the output directory
+		options.AbsOutputDir = realFS.Dir(options.AbsMetadataFile)
+	} else if options.AbsMetadataFile == "" {
+		options.AbsMetadataFile = "<stdin>"
+		options.WriteToStdout = true
+
+		// Forbid certain features when writing to stdout
+		for _, loader := range options.ExtensionToLoader {
+			if loader == config.LoaderFile {
+				log.AddError(nil, logger.Loc{}, "Cannot use the \"file\" loader without an output path")
+				break
+			}
+		}
+
+		// Use the current directory as the output directory instead of an empty
+		// string because external modules with relative paths need a base directory.
+		options.AbsOutputDir = realFS.Cwd()
+	}
+
+	if !analyseOpts.Bundle {
+		// Disallow bundle-only options when not bundling
+		if len(options.ExternalModules.NodeModules) > 0 || len(options.ExternalModules.AbsPaths) > 0 {
+			log.AddError(nil, logger.Loc{}, "Cannot use \"external\" without \"bundle\"")
+		}
+	} else if options.OutputFormat == config.FormatPreserve {
+		// If the format isn't specified, set the default format using the platform
+		switch options.Platform {
+		case config.PlatformBrowser:
+			options.OutputFormat = config.FormatIIFE
+		case config.PlatformNode:
+			options.OutputFormat = config.FormatCommonJS
+		case config.PlatformNeutral:
+			options.OutputFormat = config.FormatESModule
+		}
+	}
+
+	// Set the output mode using other settings
+	if analyseOpts.Bundle {
+		options.Mode = config.ModeBundle
+	} else if options.OutputFormat != config.FormatPreserve {
+		options.Mode = config.ModeConvertFormat
+	}
+
+	// Code splitting is experimental and currently only enabled for ES6 modules
+	if options.CodeSplitting && options.OutputFormat != config.FormatESModule {
+		log.AddError(nil, logger.Loc{}, "Splitting currently only works with the \"esm\" format")
+	}
+
+	var metadata []byte
+
+	// Stop now if there were errors
+	resolver := resolver.NewResolver(realFS, log, caches, options)
+	if !log.HasErrors() {
+		// Scan over the bundle
+		bundle := bundler.ScanBundle(log, realFS, resolver, caches, entryPoints, options)
+
+		// Stop now if there were errors
+		if !log.HasErrors() {
+			// Analyse the bundle
+			metadata = bundle.Analyse()
+
+			// Stop now if there were errors
+			if !log.HasErrors() {
+				if analyseOpts.Write {
+					// Special-case writing to stdout
+					if options.WriteToStdout {
+						if _, err := os.Stdout.Write(metadata); err != nil {
+							log.AddError(nil, logger.Loc{}, fmt.Sprintf(
+								"Failed to write to stdout: %s", err.Error()))
+						}
+					} else {
+						fs.BeforeFileOpen()
+						defer fs.AfterFileClose()
+						if err := os.MkdirAll(realFS.Dir(options.AbsMetadataFile), 0755); err != nil {
+							log.AddError(nil, logger.Loc{}, fmt.Sprintf(
+								"Failed to create output directory: %s", err.Error()))
+						} else {
+							var mode os.FileMode = 0644
+							if err := ioutil.WriteFile(options.AbsMetadataFile, metadata, mode); err != nil {
+								log.AddError(nil, logger.Loc{}, fmt.Sprintf(
+									"Failed to write to output file: %s", err.Error()))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	msgs := log.Done()
+	return AnalyseResult{
+		Errors:   convertMessagesToPublic(logger.Error, msgs),
+		Warnings: convertMessagesToPublic(logger.Warning, msgs),
+		Metadata: metadata,
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Plugin API
 
 type pluginImpl struct {

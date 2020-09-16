@@ -158,6 +158,24 @@ export interface OnLoadResponse {
   pluginData?: number;
 }
 
+export interface AnalyseRequest {
+  command: 'analyse';
+  key: number;
+  flags: string[];
+  write: boolean;
+  stdinContents: string | null;
+  stdinResolveDir: string | null;
+  absWorkingDir: string;
+  nodePaths: string[];
+  plugins?: BuildPlugin[];
+}
+
+export interface AnalyseResponse {
+  errors: types.Message[];
+  warnings: types.Message[];
+  metadata: Uint8Array;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 export interface Packet {
