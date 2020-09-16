@@ -74,6 +74,14 @@ export let transform: typeof types.transform = (input, options) => {
     service.transform(input, options));
 };
 
+export let analyse: typeof types.analyse = (options: types.AnalyseOptions): any => {
+  return startService().then(service => {
+    let promise = service.analyse(options);
+    promise.then(service.stop, service.stop); // Kill the service afterwards
+    return promise;
+  });
+};
+
 export let buildSync: typeof types.buildSync = (options: types.BuildOptions): any => {
   let result: types.BuildResult;
   runServiceSync(service => service.buildOrServe('buildSync', null, null, options, isTTY(), process.cwd(), (err, res) => {
@@ -109,6 +117,15 @@ export let transformSync: typeof types.transformSync = (input, options) => {
       }
     },
   }, (err, res) => {
+    if (err) throw err;
+    result = res!;
+  }));
+  return result!;
+};
+
+export let analyseSync: typeof types.analyseSync = (options: types.AnalyseOptions) => {
+  let result: types.AnalyseResult;
+  runServiceSync(service => service.analyse(null, options, isTTY(), process.cwd(), (err, res) => {
     if (err) throw err;
     result = res!;
   }));
@@ -208,6 +225,10 @@ export let startService: typeof types.startService = common.longLivedService(() 
           },
         }, (err, res) => err ? reject(err) : resolve(res!)));
     },
+    analyse: (options: types.AnalyseOptions): Promise<any> =>
+      new Promise<types.AnalyseResult>((resolve, reject) =>
+        service.analyse(refs, options, isTTY(), defaultWD, (err, res) =>
+          err ? reject(err) : resolve(res as types.AnalyseResult))),
     stop() {
       // Note: This is now never called
       child.kill();

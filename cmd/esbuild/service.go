@@ -290,6 +290,11 @@ func (service *serviceType) handleIncomingPacket(bytes []byte) (result outgoingP
 				refCount: refCount,
 			}
 
+		case "analyse":
+			return outgoingPacket{
+				bytes: service.handleAnalyseRequest(p.id, request),
+			}
+
 		case "error":
 			// This just exists so that errors during JavaScript API setup get printed
 			// nicely to the console. This matters if the JavaScript API setup code
@@ -795,6 +800,74 @@ func (service *serviceType) handleTransformRequest(id uint32, request map[string
 			"mapFS": mapFS,
 			"map":   string(result.Map),
 		},
+	})
+}
+
+func (service *serviceType) handleAnalyseRequest(id uint32, request map[string]interface{}) []byte {
+	key := request["key"].(int)
+	write := request["write"].(bool)
+	flags := decodeStringArray(request["flags"].([]interface{}))
+	flags = append(flags, "--analyse") // this is no esbuild command line, --analyse is assumed
+
+	options, err := cli.ParseAnalyseOptions(flags)
+	options.AbsWorkingDir = request["absWorkingDir"].(string)
+	options.NodePaths = decodeStringArray(request["nodePaths"].([]interface{}))
+
+	// Normally when "write" is true and there is no output metafile then
+	// the output is written to stdout instead. However, we're currently using
+	// stdout as a communication channel and writing the build output to stdout
+	// would corrupt our protocol.
+	//
+	// While we could channel this back to the host process and write it to
+	// stdout there, the public Go API we're about to call doesn't have an option
+	// for "write to stdout but don't actually write" and I don't think it should.
+	// For now let's just forbid this case because it's not even that useful.
+	if err == nil && write && options.Metafile == "" {
+		err = errors.New("Either provide \"metafile\" or set \"write\" to false")
+	}
+
+	if err != nil {
+		return encodeErrorPacket(id, err)
+	}
+
+	// Optionally allow input from the stdin channel
+	if stdin, ok := request["stdinContents"].(string); ok {
+		if options.Stdin == nil {
+			options.Stdin = &api.StdinOptions{}
+		}
+		options.Stdin.Contents = stdin
+		if resolveDir, ok := request["stdinResolveDir"].(string); ok {
+			options.Stdin.ResolveDir = resolveDir
+		}
+	}
+
+	if plugins, ok := request["plugins"]; ok {
+		if plugins, err := service.convertPlugins(key, plugins); err != nil {
+			return encodeErrorPacket(id, err)
+		} else {
+			options.Plugins = plugins
+		}
+	}
+
+	resultToResponse := func(result api.AnalyseResult) map[string]interface{} {
+		response := map[string]interface{}{
+			"errors":   encodeMessages(result.Errors),
+			"warnings": encodeMessages(result.Warnings),
+		}
+		if !write {
+			// Pass the metadata content file back to the caller
+			response["metadata"] = result.Metadata
+		}
+		return response
+	}
+
+	options.Write = write
+	result := api.Analyse(options)
+	response := resultToResponse(result)
+
+	return encodePacket(packet{
+		id:    id,
+		value: response,
 	})
 }
 

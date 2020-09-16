@@ -80,7 +80,7 @@ export function validateServiceOptions(options: types.ServiceOptions): types.Ser
   };
 }
 
-type CommonOptions = types.BuildOptions | types.TransformOptions;
+type CommonOptions = types.BuildOptions | types.TransformOptions | types.AnalyseOptions;
 
 function pushLogFlags(flags: string[], options: CommonOptions, keys: OptionKeys, isTTY: boolean, logLevelDefault: types.LogLevel): void {
   let color = getFlag(options, keys, 'color', mustBeBoolean);
@@ -319,6 +319,116 @@ function flagsForTransformOptions(
   return flags;
 }
 
+function flagsForAnalyseOptions(
+  options: types.AnalyseOptions,
+  isTTY: boolean,
+  logLevelDefault: types.LogLevel,
+  writeDefault: boolean
+): {
+  flags: string[],
+  write: boolean,
+  plugins: types.Plugin[] | undefined,
+  stdinContents: string | null,
+  stdinResolveDir: string | null,
+  absWorkingDir: string | undefined,
+  nodePaths: string[],
+} {
+  let flags: string[] = ['--analyse']; // this is not a command line
+  let keys: OptionKeys = Object.create(null);
+  let stdinContents: string | null = null;
+  let stdinResolveDir: string | null = null;
+  pushLogFlags(flags, options, keys, isTTY, logLevelDefault);
+  pushCommonFlags(flags, options, keys);
+
+  let bundle = getFlag(options, keys, 'bundle', mustBeBoolean);
+  let splitting = getFlag(options, keys, 'splitting', mustBeBoolean);
+  let metafile = getFlag(options, keys, 'metafile', mustBeString);
+  let platform = getFlag(options, keys, 'platform', mustBeString);
+  let tsconfig = getFlag(options, keys, 'tsconfig', mustBeString);
+  let resolveExtensions = getFlag(options, keys, 'resolveExtensions', mustBeArray);
+  let nodePathsInput = getFlag(options, keys, 'nodePaths', mustBeArray);
+  let mainFields = getFlag(options, keys, 'mainFields', mustBeArray);
+  let external = getFlag(options, keys, 'external', mustBeArray);
+  let loader = getFlag(options, keys, 'loader', mustBeObject);
+  let entryPoints = getFlag(options, keys, 'entryPoints', mustBeArray);
+  let absWorkingDir = getFlag(options, keys, 'absWorkingDir', mustBeString);
+  let stdin = getFlag(options, keys, 'stdin', mustBeObject);
+  let write = getFlag(options, keys, 'write', mustBeBoolean) ?? writeDefault; // Default to true if not specified
+  let plugins = getFlag(options, keys, 'plugins', mustBeArray);
+  checkForInvalidFlags(options, keys, `in analyse() call`);
+
+  if (bundle) flags.push('--bundle');
+  if (splitting) flags.push('--splitting');
+  if (metafile) flags.push(`--metafile=${metafile}`);
+  if (platform) flags.push(`--platform=${platform}`);
+  if (tsconfig) flags.push(`--tsconfig=${tsconfig}`);
+  if (resolveExtensions) {
+    let values: string[] = [];
+    for (let value of resolveExtensions) {
+      value += '';
+      if (value.indexOf(',') >= 0) throw new Error(`Invalid resolve extension: ${value}`);
+      values.push(value);
+    }
+    flags.push(`--resolve-extensions=${values.join(',')}`);
+  }
+  if (mainFields) {
+    let values: string[] = [];
+    for (let value of mainFields) {
+      value += '';
+      if (value.indexOf(',') >= 0) throw new Error(`Invalid main field: ${value}`);
+      values.push(value);
+    }
+    flags.push(`--main-fields=${values.join(',')}`);
+  }
+  if (external) for (let name of external) flags.push(`--external:${name}`);
+  if (loader) {
+    for (let ext in loader) {
+      if (ext.indexOf('=') >= 0) throw new Error(`Invalid extension: ${ext}`);
+      flags.push(`--loader:${ext}=${loader[ext]}`);
+    }
+  }
+
+  if (entryPoints) {
+    for (let entryPoint of entryPoints) {
+      entryPoint += '';
+      if (entryPoint.startsWith('-')) throw new Error(`Invalid entry point: ${entryPoint}`);
+      flags.push(entryPoint);
+    }
+  }
+
+  if (stdin) {
+    let stdinKeys: OptionKeys = Object.create(null);
+    let contents = getFlag(stdin, stdinKeys, 'contents', mustBeString);
+    let resolveDir = getFlag(stdin, stdinKeys, 'resolveDir', mustBeString);
+    let sourcefile = getFlag(stdin, stdinKeys, 'sourcefile', mustBeString);
+    let loader = getFlag(stdin, stdinKeys, 'loader', mustBeString);
+    checkForInvalidFlags(stdin, stdinKeys, 'in "stdin" object');
+
+    if (sourcefile) flags.push(`--sourcefile=${sourcefile}`);
+    if (loader) flags.push(`--loader=${loader}`);
+    if (resolveDir) stdinResolveDir = resolveDir + '';
+    stdinContents = contents ? contents + '' : '';
+  }
+
+  let nodePaths: string[] = [];
+  if (nodePathsInput) {
+    for (let value of nodePathsInput) {
+      value += '';
+      nodePaths.push(value);
+    }
+  }
+
+  return {
+    flags,
+    write,
+    plugins,
+    stdinContents,
+    stdinResolveDir,
+    absWorkingDir,
+    nodePaths,
+  };
+}
+
 export interface StreamIn {
   writeToStdin: (data: Uint8Array) => void;
   readFileSync?: (path: string, encoding: 'utf8') => string;
@@ -361,6 +471,14 @@ export interface StreamService {
     isTTY: boolean,
     fs: StreamFS,
     callback: (err: Error | null, res: types.TransformResult | null) => void,
+  ): void;
+
+  analyse(
+    refs: Refs | null,
+    options: types.AnalyseOptions,
+    isTTY: boolean,
+    defaultWD: string,
+    callback: (err: Error | null, res: types.AnalyseResult | null) => void,
   ): void;
 }
 
@@ -553,7 +671,7 @@ export function createChannel(streamIn: StreamIn): StreamOut {
     }
   };
 
-  let handlePlugins = (plugins: types.Plugin[], request: protocol.BuildRequest, buildKey: number, stash: ObjectStash): Refs => {
+  let handlePlugins = (plugins: types.Plugin[], request: protocol.BuildRequest | protocol.AnalyseRequest, buildKey: number, stash: ObjectStash): Refs => {
     if (streamIn.isSync) throw new Error('Cannot use plugins in synchronous API calls');
 
     let onResolveCallbacks: {
@@ -1009,6 +1127,71 @@ export function createChannel(streamIn: StreamIn): StreamOut {
         }
         start(null);
       },
+
+      analyse(callerRefs, options, isTTY, defaultWD, callback) {
+        let pluginRefs: Refs | undefined;
+        const details = createObjectStash();
+        const logLevelDefault = 'info';
+        const refs = {
+          ref() {
+            if (pluginRefs) pluginRefs.ref()
+            if (callerRefs) callerRefs.ref()
+          },
+          unref() {
+            if (pluginRefs) pluginRefs.unref()
+            if (callerRefs) callerRefs.unref()
+          },
+        }
+        try {
+          let key = nextBuildKey++;
+          let writeDefault = !streamIn.isBrowser;
+          let {
+            flags,
+            write,
+            plugins,
+            stdinContents,
+            stdinResolveDir,
+            absWorkingDir,
+            nodePaths,
+          } = flagsForAnalyseOptions(options, isTTY, logLevelDefault, writeDefault);
+          let request: protocol.AnalyseRequest = {
+            command: 'analyse',
+            key,
+            flags,
+            write,
+            stdinContents,
+            stdinResolveDir,
+            absWorkingDir: absWorkingDir || defaultWD,
+            nodePaths,
+          };
+          if (plugins && plugins.length > 0) pluginRefs = handlePlugins(plugins, request, key, details);
+          if (write && streamIn.isBrowser) throw new Error(`Cannot enable "write" in the browser`);
+          let analyseResponseToResult = (
+            response: protocol.AnalyseResponse | null,
+            callback: (error: Error | null, result: types.AnalyseResult | null) => void,
+          ): void => {
+            let errors = replaceDetailsInMessages(response!.errors, details);
+            let warnings = replaceDetailsInMessages(response!.warnings, details);
+            if (errors.length > 0) return callback(failureErrorWithLog('Analyse failed', errors, warnings), null);
+
+            let result: types.AnalyseResult = { warnings };
+            if (!write) result.metadata = response!.metadata && convertOutput(response!.metadata);
+            callback(null, result);
+          }
+          sendRequest<protocol.AnalyseRequest, protocol.AnalyseResponse>(callerRefs, request, (error, response) => {
+            if (error) return callback(new Error(error), null);
+            return analyseResponseToResult(response!, callback);
+          });
+        } catch (e) {
+          let flags: string[] = [];
+          try { pushLogFlags(flags, options, {}, isTTY, logLevelDefault) } catch { }
+          const error = extractErrorMessageV8(e, streamIn, details, void 0);
+          sendRequest(callerRefs, { command: 'error', flags, error }, () => {
+            error.detail = details.load(error.detail);
+            callback(failureErrorWithLog('Analyse failed', [error], []), null);
+        });
+        }
+      },
     },
   };
 }
@@ -1263,6 +1446,9 @@ export function longLivedService(getwd: () => string, startService: typeof types
         transform(input, options) {
           return service.transform(input, options);
         },
+        analyse: (options: any): any => {
+          return service.analyse(options);
+        },
         stop() {
           // This is now a no-op
         },
@@ -1276,4 +1462,15 @@ export function longLivedService(getwd: () => string, startService: typeof types
       throw e;
     }
   };
+}
+
+function convertOutput(contents: Uint8Array): types.Output {
+  let text: string | null = null;
+  return {
+    contents,
+    get text() {
+      if (text === null) text = protocol.decodeUTF8(contents);
+      return text;
+    },
+  }
 }
