@@ -156,6 +156,9 @@ func (service *serviceType) handleIncomingPacket(bytes []byte) (result []byte) {
 		case "transform":
 			return service.handleTransformRequest(p.id, request)
 
+		case "analyse":
+			return service.handleAnalyseRequest(p.id, request)
+
 		case "error":
 			// This just exists so that errors during JavaScript API setup get printed
 			// nicely to the console. This matters if the JavaScript API setup code
@@ -300,6 +303,48 @@ func (service *serviceType) handleTransformRequest(id uint32, request map[string
 			"jsSourceMapFS": jsSourceMapFS,
 			"jsSourceMap":   string(result.JSSourceMap),
 		},
+	})
+}
+
+func (service *serviceType) handleAnalyseRequest(id uint32, request map[string]interface{}) []byte {
+	write := request["write"].(bool)
+	flags := decodeStringArray(request["flags"].([]interface{}))
+	flags = append(flags, "--analyse") // this is no esbuild command line, --analyse is assumed
+
+	options, err := cli.ParseAnalyseOptions(flags)
+	if err == nil && write && options.Metafile == "" {
+		err = errors.New("Either provide \"metafile\" or set \"write\" to false")
+	}
+	if err != nil {
+		return encodeErrorPacket(id, err)
+	}
+
+	// Optionally allow input from the stdin channel
+	if stdin, ok := request["stdin"].(string); ok {
+		if options.Stdin == nil {
+			options.Stdin = &api.StdinOptions{}
+		}
+		options.Stdin.Contents = stdin
+		if resolveDir, ok := request["resolveDir"].(string); ok {
+			options.Stdin.ResolveDir = resolveDir
+		}
+	}
+
+	options.Write = write
+	result := api.Analyse(options)
+	response := map[string]interface{}{
+		"errors":   encodeMessages(result.Errors),
+		"warnings": encodeMessages(result.Warnings),
+	}
+
+	if !write {
+		// Pass the metadata content file back to the caller
+		response["metadata"] = result.Metadata
+	}
+
+	return encodePacket(packet{
+		id:    id,
+		value: response,
 	})
 }
 

@@ -25,8 +25,16 @@ func newTransformOptions() api.TransformOptions {
 	}
 }
 
-func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpts *api.TransformOptions) error {
+func newAnalyseOptions() api.AnalyseOptions {
+	return api.AnalyseOptions{
+		Loaders: make(map[string]api.Loader),
+		Defines: make(map[string]string),
+	}
+}
+
+func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpts *api.TransformOptions, analyseOpts *api.AnalyseOptions) error {
 	hasBareSourceMapFlag := false
+	analyse := false
 
 	// Parse the arguments now that we know what we're parsing
 	for _, arg := range osArgs {
@@ -34,15 +42,23 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case arg == "--bundle" && buildOpts != nil:
 			buildOpts.Bundle = true
 
-		case arg == "--splitting" && buildOpts != nil:
-			buildOpts.Splitting = true
+		case arg == "--analyse" && analyseOpts != nil:
+			analyseOpts.Bundle = true
+			analyse = true
+
+		case arg == "--splitting":
+			if buildOpts != nil {
+				buildOpts.Splitting = true
+			} else {
+				analyseOpts.Splitting = true
+			}
 
 		case arg == "--minify":
 			if buildOpts != nil {
 				buildOpts.MinifySyntax = true
 				buildOpts.MinifyWhitespace = true
 				buildOpts.MinifyIdentifiers = true
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.MinifySyntax = true
 				transformOpts.MinifyWhitespace = true
 				transformOpts.MinifyIdentifiers = true
@@ -51,28 +67,28 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case arg == "--minify-syntax":
 			if buildOpts != nil {
 				buildOpts.MinifySyntax = true
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.MinifySyntax = true
 			}
 
 		case arg == "--minify-whitespace":
 			if buildOpts != nil {
 				buildOpts.MinifyWhitespace = true
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.MinifyWhitespace = true
 			}
 
 		case arg == "--minify-identifiers":
 			if buildOpts != nil {
 				buildOpts.MinifyIdentifiers = true
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.MinifyIdentifiers = true
 			}
 
 		case arg == "--sourcemap":
 			if buildOpts != nil {
 				buildOpts.Sourcemap = api.SourceMapLinked
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Sourcemap = api.SourceMapInline
 			}
 			hasBareSourceMapFlag = true
@@ -80,7 +96,7 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case arg == "--sourcemap=external":
 			if buildOpts != nil {
 				buildOpts.Sourcemap = api.SourceMapExternal
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Sourcemap = api.SourceMapExternal
 			}
 			hasBareSourceMapFlag = false
@@ -88,7 +104,7 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case arg == "--sourcemap=inline":
 			if buildOpts != nil {
 				buildOpts.Sourcemap = api.SourceMapInline
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Sourcemap = api.SourceMapInline
 			}
 			hasBareSourceMapFlag = false
@@ -99,25 +115,44 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 					buildOpts.Stdin = &api.StdinOptions{}
 				}
 				buildOpts.Stdin.Sourcefile = arg[len("--sourcefile="):]
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Sourcefile = arg[len("--sourcefile="):]
+			} else {
+				if analyseOpts.Stdin == nil {
+					analyseOpts.Stdin = &api.StdinOptions{}
+				}
+				analyseOpts.Stdin.Sourcefile = arg[len("--sourcefile="):]
 			}
 
-		case strings.HasPrefix(arg, "--resolve-extensions=") && buildOpts != nil:
-			buildOpts.ResolveExtensions = strings.Split(arg[len("--resolve-extensions="):], ",")
+		case strings.HasPrefix(arg, "--resolve-extensions="):
+			if buildOpts != nil {
+				buildOpts.ResolveExtensions = strings.Split(arg[len("--resolve-extensions="):], ",")
+			} else {
+				analyseOpts.ResolveExtensions = strings.Split(arg[len("--resolve-extensions="):], ",")
+			}
 
-		case strings.HasPrefix(arg, "--main-fields=") && buildOpts != nil:
-			buildOpts.MainFields = strings.Split(arg[len("--main-fields="):], ",")
+		case strings.HasPrefix(arg, "--main-fields="):
+			if buildOpts != nil {
+				buildOpts.MainFields = strings.Split(arg[len("--main-fields="):], ",")
+			} else {
+				analyseOpts.MainFields = strings.Split(arg[len("--main-fields="):], ",")
+			}
 
 		case strings.HasPrefix(arg, "--global-name="):
 			if buildOpts != nil {
 				buildOpts.GlobalName = arg[len("--global-name="):]
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.GlobalName = arg[len("--global-name="):]
+			} else {
+				analyseOpts.GlobalName = arg[len("--global-name="):]
 			}
 
-		case strings.HasPrefix(arg, "--metafile=") && buildOpts != nil:
-			buildOpts.Metafile = arg[len("--metafile="):]
+		case strings.HasPrefix(arg, "--metafile="):
+			if buildOpts != nil {
+				buildOpts.Metafile = arg[len("--metafile="):]
+			} else {
+				analyseOpts.Metafile = arg[len("--metafile="):]
+			}
 
 		case strings.HasPrefix(arg, "--outfile=") && buildOpts != nil:
 			buildOpts.Outfile = arg[len("--outfile="):]
@@ -125,8 +160,12 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case strings.HasPrefix(arg, "--outdir=") && buildOpts != nil:
 			buildOpts.Outdir = arg[len("--outdir="):]
 
-		case strings.HasPrefix(arg, "--tsconfig=") && buildOpts != nil:
-			buildOpts.Tsconfig = arg[len("--tsconfig="):]
+		case strings.HasPrefix(arg, "--tsconfig="):
+			if buildOpts != nil {
+				buildOpts.Tsconfig = arg[len("--tsconfig="):]
+			} else {
+				analyseOpts.Tsconfig = arg[len("--tsconfig="):]
+			}
 
 		case strings.HasPrefix(arg, "--define:"):
 			value := arg[len("--define:"):]
@@ -136,19 +175,23 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			}
 			if buildOpts != nil {
 				buildOpts.Defines[value[:equals]] = value[equals+1:]
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Defines[value[:equals]] = value[equals+1:]
+			} else {
+				analyseOpts.Defines[value[:equals]] = value[equals+1:]
 			}
 
 		case strings.HasPrefix(arg, "--pure:"):
 			value := arg[len("--pure:"):]
 			if buildOpts != nil {
 				buildOpts.PureFunctions = append(buildOpts.PureFunctions, value)
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.PureFunctions = append(transformOpts.PureFunctions, value)
+			} else {
+				analyseOpts.PureFunctions = append(analyseOpts.PureFunctions, value)
 			}
 
-		case strings.HasPrefix(arg, "--loader:") && buildOpts != nil:
+		case strings.HasPrefix(arg, "--loader:"):
 			value := arg[len("--loader:"):]
 			equals := strings.IndexByte(value, '=')
 			if equals == -1 {
@@ -159,7 +202,11 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			if err != nil {
 				return err
 			}
-			buildOpts.Loaders[ext] = loader
+			if buildOpts != nil {
+				buildOpts.Loaders[ext] = loader
+			} else {
+				analyseOpts.Loaders[ext] = loader
+			}
 
 		case strings.HasPrefix(arg, "--loader="):
 			value := arg[len("--loader="):]
@@ -175,8 +222,13 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 					buildOpts.Stdin = &api.StdinOptions{}
 				}
 				buildOpts.Stdin.Loader = loader
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Loader = loader
+			} else {
+				if analyseOpts.Stdin == nil {
+					analyseOpts.Stdin = &api.StdinOptions{}
+				}
+				analyseOpts.Stdin.Loader = loader
 			}
 
 		case strings.HasPrefix(arg, "--target="):
@@ -187,9 +239,12 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			if buildOpts != nil {
 				buildOpts.Target = target
 				buildOpts.Engines = engines
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Target = target
 				transformOpts.Engines = engines
+			} else {
+				analyseOpts.Target = target
+				analyseOpts.Engines = engines
 			}
 
 		case strings.HasPrefix(arg, "--out-extension:") && buildOpts != nil:
@@ -211,16 +266,20 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			}
 			if buildOpts != nil {
 				buildOpts.Strict = value
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Strict = value
+			} else {
+				analyseOpts.Strict = value
 			}
 
 		case strings.HasPrefix(arg, "--strict:"):
 			var value *api.StrictOptions
 			if buildOpts != nil {
 				value = &buildOpts.Strict
-			} else {
+			} else if transformOpts != nil {
 				value = &transformOpts.Strict
+			} else {
+				value = &analyseOpts.Strict
 			}
 			name := arg[len("--strict:"):]
 			switch name {
@@ -234,13 +293,21 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 				return fmt.Errorf("Invalid strict value: %q (valid: nullish-coalescing, optional-chaining, class-fields)", name)
 			}
 
-		case strings.HasPrefix(arg, "--platform=") && buildOpts != nil:
+		case strings.HasPrefix(arg, "--platform="):
 			value := arg[len("--platform="):]
 			switch value {
 			case "browser":
-				buildOpts.Platform = api.PlatformBrowser
+				if buildOpts != nil {
+					buildOpts.Platform = api.PlatformBrowser
+				} else {
+					analyseOpts.Platform = api.PlatformBrowser
+				}
 			case "node":
-				buildOpts.Platform = api.PlatformNode
+				if buildOpts != nil {
+					buildOpts.Platform = api.PlatformNode
+				} else {
+					analyseOpts.Platform = api.PlatformNode
+				}
 			default:
 				return fmt.Errorf("Invalid platform: %q (valid: browser, node)", value)
 			}
@@ -270,23 +337,31 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 				return fmt.Errorf("Invalid format: %q (valid: iife, cjs, esm)", value)
 			}
 
-		case strings.HasPrefix(arg, "--external:") && buildOpts != nil:
-			buildOpts.Externals = append(buildOpts.Externals, arg[len("--external:"):])
+		case strings.HasPrefix(arg, "--external:"):
+			if buildOpts != nil {
+				buildOpts.Externals = append(buildOpts.Externals, arg[len("--external:"):])
+			} else {
+				analyseOpts.Externals = append(analyseOpts.Externals, arg[len("--external:"):])
+			}
 
 		case strings.HasPrefix(arg, "--jsx-factory="):
 			value := arg[len("--jsx-factory="):]
 			if buildOpts != nil {
 				buildOpts.JSXFactory = value
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.JSXFactory = value
+			} else {
+				analyseOpts.JSXFactory = value
 			}
 
 		case strings.HasPrefix(arg, "--jsx-fragment="):
 			value := arg[len("--jsx-fragment="):]
 			if buildOpts != nil {
 				buildOpts.JSXFragment = value
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.JSXFragment = value
+			} else {
+				analyseOpts.JSXFragment = value
 			}
 
 		case strings.HasPrefix(arg, "--error-limit="):
@@ -297,8 +372,10 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			}
 			if buildOpts != nil {
 				buildOpts.ErrorLimit = limit
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.ErrorLimit = limit
+			} else {
+				analyseOpts.ErrorLimit = limit
 			}
 
 			// Make sure this stays in sync with "PrintErrorToStderr"
@@ -315,8 +392,10 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			}
 			if buildOpts != nil {
 				buildOpts.Color = color
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.Color = color
+			} else {
+				analyseOpts.Color = color
 			}
 
 		// Make sure this stays in sync with "PrintErrorToStderr"
@@ -337,18 +416,26 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 			}
 			if buildOpts != nil {
 				buildOpts.LogLevel = logLevel
-			} else {
+			} else if transformOpts != nil {
 				transformOpts.LogLevel = logLevel
+			} else {
+				analyseOpts.LogLevel = logLevel
 			}
 
-		case !strings.HasPrefix(arg, "-") && buildOpts != nil:
-			buildOpts.EntryPoints = append(buildOpts.EntryPoints, arg)
+		case !strings.HasPrefix(arg, "-"):
+			if buildOpts != nil {
+				buildOpts.EntryPoints = append(buildOpts.EntryPoints, arg)
+			} else {
+				analyseOpts.EntryPoints = append(analyseOpts.EntryPoints, arg)
+			}
 
 		default:
 			if buildOpts != nil {
 				return fmt.Errorf("Invalid build flag: %q", arg)
-			} else {
+			} else if transformOpts != nil {
 				return fmt.Errorf("Invalid transform flag: %q", arg)
+			} else {
+				return fmt.Errorf("Invalid analyse flag: %q", arg)
 			}
 		}
 	}
@@ -358,6 +445,10 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 	// going to be writing to stdout which can only represent a single file.
 	if buildOpts != nil && hasBareSourceMapFlag && buildOpts.Outfile == "" && buildOpts.Outdir == "" {
 		buildOpts.Sourcemap = api.SourceMapInline
+	}
+
+	if analyseOpts != nil && !analyse {
+		return fmt.Errorf("Missing --analyse flag")
 	}
 
 	return nil
@@ -445,8 +536,9 @@ func parseLoader(text string) (api.Loader, error) {
 }
 
 // This returns either BuildOptions, TransformOptions, or an error
-func parseOptionsForRun(osArgs []string) (*api.BuildOptions, *api.TransformOptions, error) {
+func parseOptionsForRun(osArgs []string) (*api.BuildOptions, *api.TransformOptions, *api.AnalyseOptions, error) {
 	// If there's an entry point or we're bundling, then we're building
+	// If there's the --analyse flag set, then we're analysing
 	for _, arg := range osArgs {
 		if !strings.HasPrefix(arg, "-") || arg == "--bundle" {
 			options := newBuildOptions()
@@ -456,11 +548,24 @@ func parseOptionsForRun(osArgs []string) (*api.BuildOptions, *api.TransformOptio
 			options.LogLevel = api.LogLevelInfo
 			options.Write = true
 
-			err := parseOptionsImpl(osArgs, &options, nil)
+			err := parseOptionsImpl(osArgs, &options, nil, nil)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
-			return &options, nil, nil
+			return &options, nil, nil, nil
+		} else if !strings.HasPrefix(arg, "-") || arg == "--analyse" {
+			options := newAnalyseOptions()
+
+			// Apply defaults appropriate for the CLI
+			options.ErrorLimit = 10
+			options.LogLevel = api.LogLevelInfo
+			options.Write = true
+
+			err := parseOptionsImpl(osArgs, nil, nil, &options)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			return nil, nil, &options, nil
 		}
 	}
 
@@ -471,18 +576,18 @@ func parseOptionsForRun(osArgs []string) (*api.BuildOptions, *api.TransformOptio
 	options.ErrorLimit = 10
 	options.LogLevel = api.LogLevelInfo
 
-	err := parseOptionsImpl(osArgs, nil, &options)
+	err := parseOptionsImpl(osArgs, nil, &options, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if options.Sourcemap != api.SourceMapNone && options.Sourcemap != api.SourceMapInline {
-		return nil, nil, fmt.Errorf("Must use \"inline\" source map when transforming stdin")
+		return nil, nil, nil, fmt.Errorf("Must use \"inline\" source map when transforming stdin")
 	}
-	return nil, &options, nil
+	return nil, &options, nil, nil
 }
 
 func runImpl(osArgs []string) int {
-	buildOptions, transformOptions, err := parseOptionsForRun(osArgs)
+	buildOptions, transformOptions, analyseOptions, err := parseOptionsForRun(osArgs)
 
 	switch {
 	case buildOptions != nil:
@@ -532,6 +637,36 @@ func runImpl(osArgs []string) int {
 
 		// Write the output to stdout
 		os.Stdout.Write(result.JS)
+
+	case analyseOptions != nil:
+		// Read from stdin when there are no entry points
+		if len(analyseOptions.EntryPoints) == 0 {
+			if analyseOptions.Stdin == nil {
+				analyseOptions.Stdin = &api.StdinOptions{}
+			}
+			bytes, err := ioutil.ReadAll(os.Stdin)
+			if err != nil {
+				logger.PrintErrorToStderr(osArgs, fmt.Sprintf(
+					"Could not read from stdin: %s", err.Error()))
+				return 1
+			}
+			analyseOptions.Stdin.Contents = string(bytes)
+		} else if analyseOptions.Stdin != nil {
+			if analyseOptions.Stdin.Sourcefile != "" {
+				logger.PrintErrorToStderr(osArgs,
+					"\"sourcefile\" only applies when reading from stdin")
+			} else {
+				logger.PrintErrorToStderr(osArgs,
+					"\"loader\" without extension only applies when reading from stdin")
+			}
+			return 1
+		}
+
+		// Run the build and stop if there were errors
+		result := api.Analyse(*analyseOptions)
+		if len(result.Errors) > 0 {
+			return 1
+		}
 
 	case err != nil:
 		logger.PrintErrorToStderr(osArgs, err.Error())

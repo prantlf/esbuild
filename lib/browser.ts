@@ -11,12 +11,20 @@ let transform: typeof types.transform = (input, options) => {
   throw new Error(`The "transform" API only works in node`);
 };
 
+let analyse: typeof types.analyse = options => {
+  throw new Error(`The "analyse" API only works in node`);
+};
+
 let buildSync: typeof types.buildSync = options => {
   throw new Error(`The "buildSync" API only works in node`);
 };
 
 let transformSync: typeof types.transformSync = (input, options) => {
   throw new Error(`The "transformSync" API only works in node`);
+};
+
+let analyseSync: typeof types.analyseSync = options => {
+  throw new Error(`The "analyseSync" API only works in node`);
 };
 
 let startService: typeof types.startService = options => {
@@ -71,6 +79,9 @@ let startService: typeof types.startService = options => {
             readFile(_, callback) { callback(new Error('Internal error'), null); },
             writeFile(_, callback) { callback(null); },
           }, (err, res) => err ? reject(err) : resolve(res!))),
+      analyse(options) {
+        throw new Error(`The "analyse" API only works in node`)
+      },
       stop() {
         worker.terminate()
         afterClose()
@@ -84,6 +95,8 @@ let api: typeof types = {
   buildSync,
   transform,
   transformSync,
+  analyse,
+  analyseSync,
   startService,
 };
 
