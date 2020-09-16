@@ -19,6 +19,7 @@ Usage:
 
 Options:
   --bundle              Bundle all dependencies into the output files
+  --analyse             Collect metadata about the source modules
   --outfile=...         The output file (for one entry point)
   --outdir=...          The output directory (for multiple entry points)
   --sourcemap           Emit a source map

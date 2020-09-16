@@ -49,6 +49,23 @@ process.stdout.write(js)
 
 See [the TypeScript type definitions](../lib/types.ts) for the complete set of options.
 
+### Analysing module dependencies
+
+The `analyse()` and `analyseSync()` APIs are the same as invoking the command-line tool with the `--analyse` option. It reads from files on disk and writes the module metadata to a file on disk. Using this API can be more convenient than managing a lot of command-line flags and also works on all platforms, unlike shell scripts. This is similar to "config files" from other bundlers.
+
+Example build script:
+
+```js
+const { analyse } = require('esbuild')
+
+analyse({
+  entryPoints: ['./src/main.ts'],
+  metafile: './doc/dependencies.json'
+}).catch(() => process.exit(1))
+```
+
+See [the TypeScript type definitions](../lib/types.ts) for the complete set of options.
+
 ### Use a service for optimal performance
 
 The functions described above don't have optimal performance because every call creates a new child process, which adds extra overhead. If you need to make repeated calls to esbuild's API you'll probably want to use the service API, which creates a single long-lived child process and shares it between all API calls.
