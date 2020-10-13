@@ -160,6 +160,13 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 		case strings.HasPrefix(arg, "--outdir=") && buildOpts != nil:
 			buildOpts.Outdir = arg[len("--outdir="):]
 
+		case strings.HasPrefix(arg, "--amdconfig="):
+			if buildOpts != nil {
+				buildOpts.AMDConfig = arg[len("--amdconfig="):]
+			} else {
+				analyseOpts.AMDConfig = arg[len("--amdconfig="):]
+			}
+
 		case strings.HasPrefix(arg, "--tsconfig="):
 			if buildOpts != nil {
 				buildOpts.Tsconfig = arg[len("--tsconfig="):]

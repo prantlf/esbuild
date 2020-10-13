@@ -248,6 +248,7 @@ type BuildOptions struct {
 	MainFields        []string
 	Loaders           map[string]Loader
 	ResolveExtensions []string
+	AMDConfig         string
 	Tsconfig          string
 	OutExtensions     map[string]string
 
@@ -347,6 +348,7 @@ type AnalyseOptions struct {
 	MainFields        []string
 	Loaders           map[string]Loader
 	ResolveExtensions []string
+	AMDConfig         string
 	Tsconfig          string
 
 	EntryPoints []string
