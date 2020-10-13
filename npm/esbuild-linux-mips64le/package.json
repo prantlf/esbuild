@@ -1,8 +1,8 @@
 {
-  "name": "esbuild-linux-mips64le",
+  "name": "@prantlf/esbuild-linux-mips64le",
   "version": "0.8.46",
   "description": "The Linux MIPS 64-bit Little Endian binary for esbuild, a JavaScript bundler.",
-  "repository": "https://github.com/evanw/esbuild",
+  "repository": "https://github.com/prantlf/esbuild",
   "license": "MIT",
   "os": [
     "linux"
