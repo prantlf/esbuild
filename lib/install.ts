@@ -44,7 +44,7 @@ async function installBinaryFromPackage(name: string, fromPath: string, toPath: 
   // If that fails, the user could have npm configured incorrectly or could not
   // have npm installed. Try downloading directly from npm as a last resort.
   if (!buffer) {
-    const url = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
+    const url = `https://registry.npmjs.org/@prantlf/${name}/-/${name}-${version}.tgz`;
     console.error(`Trying to download ${JSON.stringify(url)}`);
     try {
       buffer = extractFileFromTarGzip(await fetch(url), fromPath);
@@ -104,7 +104,7 @@ before installing esbuild.
 
 function getCachePath(name: string): string {
   const home = os.homedir();
-  const common = ['esbuild', 'bin', `${name}@${version}`];
+  const common = ['@prantlf', 'esbuild', 'bin', `${name}@${version}`];
   if (process.platform === 'darwin') return path.join(home, 'Library', 'Caches', ...common);
   if (process.platform === 'win32') return path.join(home, 'AppData', 'Local', 'Cache', ...common);
   return path.join(home, '.cache', ...common);
@@ -275,19 +275,19 @@ function installOnWindows(name: string): void {
 
 const platformKey = `${process.platform} ${os.arch()} ${os.endianness()}`;
 const knownWindowsPackages: Record<string, string> = {
-  'win32 ia32 LE': 'esbuild-windows-32',
-  'win32 x64 LE': 'esbuild-windows-64',
+  'win32 ia32 LE': '@prantlf/esbuild-windows-32',
+  'win32 x64 LE': '@prantlf/esbuild-windows-64',
 };
 const knownUnixlikePackages: Record<string, string> = {
-  'darwin x64 LE': 'esbuild-darwin-64',
-  'darwin arm64 LE': 'esbuild-darwin-64',
-  'freebsd arm64 LE': 'esbuild-freebsd-arm64',
-  'freebsd x64 LE': 'esbuild-freebsd-64',
-  'linux arm64 LE': 'esbuild-linux-arm64',
-  'linux ia32 LE': 'esbuild-linux-32',
-  'linux mips64el LE': 'esbuild-linux-mips64le',
-  'linux ppc64 LE': 'esbuild-linux-ppc64le',
-  'linux x64 LE': 'esbuild-linux-64',
+  'darwin x64 LE': '@prantlf/esbuild-darwin-64',
+  'darwin arm64 LE': '@prantlf/esbuild-darwin-64',
+  'freebsd arm64 LE': '@prantlf/esbuild-freebsd-arm64',
+  'freebsd x64 LE': '@prantlf/esbuild-freebsd-64',
+  'linux arm64 LE': '@prantlf/esbuild-linux-arm64',
+  'linux ia32 LE': '@prantlf/esbuild-linux-32',
+  'linux mips64el LE': '@prantlf/esbuild-linux-mips64le',
+  'linux ppc64 LE': '@prantlf/esbuild-linux-ppc64le',
+  'linux x64 LE': '@prantlf/esbuild-linux-64',
 };
 
 // Pick a package to install

@@ -124,68 +124,57 @@ test-otp:
 	test -n "$(OTP)" && echo publish --otp="$(OTP)"
 
 publish-all: cmd/esbuild/version.go test-prepublish
-	@test master = "`git rev-parse --abbrev-ref HEAD`" || (echo "Refusing to publish from non-master branch `git rev-parse --abbrev-ref HEAD`" && false)
-	@echo "Checking for unpushed commits..." && git fetch
-	@test "" = "`git cherry`" || (echo "Refusing to publish with unpushed commits" && false)
-	rm -fr npm && git checkout npm
-	@echo Enter one-time password:
-	@read OTP && OTP="$$OTP" make -j5 \
+	make -j5 \
 		publish-windows \
 		publish-windows-32 \
 		publish-darwin \
 		publish-freebsd \
 		publish-freebsd-arm64
-	@echo Enter one-time password:
-	@read OTP && OTP="$$OTP" make -j5 \
+	make -j5 \
 		publish-linux \
 		publish-linux-32 \
 		publish-linux-arm64 \
 		publish-linux-mips64le \
 		publish-linux-ppc64le
-	# Do these last to avoid race conditions
-	@echo Enter one-time password:
-	@read OTP && OTP="$$OTP" make -j2 \
-		publish-neutral \
-		publish-wasm
-	git commit -am "publish $(ESBUILD_VERSION) to npm"
-	git tag "v$(ESBUILD_VERSION)"
-	git push origin master "v$(ESBUILD_VERSION)"
+	make -j2 \
+		publish-wasm \
+		publish-neutral
 
 publish-windows: platform-windows
-	test -n "$(OTP)" && cd npm/esbuild-windows-64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-windows-64 && npm publish --access public
 
 publish-windows-32: platform-windows-32
-	test -n "$(OTP)" && cd npm/esbuild-windows-32 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-windows-32 && npm publish --access public
 
 publish-darwin: platform-darwin
-	test -n "$(OTP)" && cd npm/esbuild-darwin-64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-darwin-64 && npm publish --access public
 
 publish-freebsd: platform-freebsd
-	test -n "$(OTP)" && cd npm/esbuild-freebsd-64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-freebsd-64 && npm publish --access public
 
 publish-freebsd-arm64: platform-freebsd-arm64
-	test -n "$(OTP)" && cd npm/esbuild-freebsd-arm64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-freebsd-arm64 && npm publish --access public
 
 publish-linux: platform-linux
-	test -n "$(OTP)" && cd npm/esbuild-linux-64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-linux-64 && npm publish --access public
 
 publish-linux-32: platform-linux-32
-	test -n "$(OTP)" && cd npm/esbuild-linux-32 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-linux-32 && npm publish --access public
 
 publish-linux-arm64: platform-linux-arm64
-	test -n "$(OTP)" && cd npm/esbuild-linux-arm64 && npm publish --otp="$(OTP)"
+	cd npm/esbuild-linux-arm64 && npm publish --access public
 
 publish-linux-mips64le: platform-linux-mips64le
-	test -n "$(OTP)" && cd npm/esbuild-linux-mips64le && npm publish --otp="$(OTP)"
+	cd npm/esbuild-linux-mips64le && npm publish --access public
 
 publish-linux-ppc64le: platform-linux-ppc64le
-	test -n "$(OTP)" && cd npm/esbuild-linux-ppc64le && npm publish --otp="$(OTP)"
+	cd npm/esbuild-linux-ppc64le && npm publish --access public
 
 publish-wasm: platform-wasm
-	test -n "$(OTP)" && cd npm/esbuild-wasm && npm publish --otp="$(OTP)"
+	cd npm/esbuild-wasm && npm publish --access public
 
 publish-neutral: platform-neutral
-	test -n "$(OTP)" && cd npm/esbuild && npm publish --otp="$(OTP)"
+	cd npm/esbuild && npm publish --access public
 
 clean:
 	rm -f esbuild
