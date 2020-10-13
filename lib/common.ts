@@ -119,6 +119,7 @@ function flagsForBuildOptions(options: types.BuildOptions, isTTY: boolean, logLe
   let outfile = getFlag(options, keys, 'outfile', mustBeString);
   let outdir = getFlag(options, keys, 'outdir', mustBeString);
   let platform = getFlag(options, keys, 'platform', mustBeString);
+  let amdconfig = getFlag(options, keys, 'amdconfig', mustBeString);
   let tsconfig = getFlag(options, keys, 'tsconfig', mustBeString);
   let resolveExtensions = getFlag(options, keys, 'resolveExtensions', mustBeArray);
   let mainFields = getFlag(options, keys, 'mainFields', mustBeArray);
@@ -137,6 +138,7 @@ function flagsForBuildOptions(options: types.BuildOptions, isTTY: boolean, logLe
   if (outfile) flags.push(`--outfile=${outfile}`);
   if (outdir) flags.push(`--outdir=${outdir}`);
   if (platform) flags.push(`--platform=${platform}`);
+  if (amdconfig) flags.push(`--amdconfig=${amdconfig}`);
   if (tsconfig) flags.push(`--tsconfig=${tsconfig}`);
   if (resolveExtensions) flags.push(`--resolve-extensions=${resolveExtensions.join(',')}`);
   if (mainFields) flags.push(`--main-fields=${mainFields.join(',')}`);

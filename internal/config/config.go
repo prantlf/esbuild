@@ -1,6 +1,10 @@
 package config
 
 import (
+	"path/filepath"
+	"strings"
+	"sync"
+
 	"github.com/evanw/esbuild/internal/compat"
 )
 
@@ -163,6 +167,18 @@ const (
 	ModeBundle
 )
 
+type AMDOptions struct {
+	Parse             bool
+	BaseUrl           string
+	Paths             map[string]string
+	Map               map[string]map[string]string
+	StarMap           map[string]string
+	MappedModuleNames bool
+
+	backwardPaths      map[string]string
+	backwardPathsMutex *sync.RWMutex
+}
+
 type Options struct {
 	Mode              Mode
 	RemoveWhitespace  bool
@@ -190,6 +206,7 @@ type Options struct {
 
 	Strict   StrictOptions
 	Defines  *ProcessedDefines
+	AMD      AMDOptions
 	TS       TSOptions
 	JSX      JSXOptions
 	Platform Platform
@@ -205,6 +222,7 @@ type Options struct {
 	AbsOutputDir      string
 	OutputExtensions  map[string]string
 	ModuleName        string
+	AMDConfig         string
 	TsConfigOverride  string
 	ExtensionToLoader map[string]Loader
 	OutputFormat      Format
@@ -221,4 +239,124 @@ func (options *Options) OutputExtensionFor(key string) string {
 		return ext
 	}
 	return key
+}
+
+func (options *AMDOptions) Init(baseUrl string) {
+	options.BaseUrl = baseUrl
+	options.Paths = make(map[string]string)
+	options.Map = make(map[string]map[string]string)
+	options.StarMap = make(map[string]string)
+	options.backwardPaths = make(map[string]string)
+	options.backwardPathsMutex = &sync.RWMutex{}
+}
+
+// The following configuration:
+//
+// {
+//   "paths": {
+//     "foo":     "foo2",
+//     "foo/bar": "foo/bar2"
+//   }
+// }
+//
+// will map "foo/baz" to "foo2/baz" and "foo/bar/baz" to "foo/bar2/baz"
+// using the longest matching path segment first.
+func (options *AMDOptions) ModuleNameToPath(importPath string, sourcePath string) string {
+	mappedSource := options.ModulePathToName(sourcePath)
+	if mappedSource != "" {
+		sourcePath = mappedSource
+	} else {
+		sourcePath, _ = filepath.Rel(options.BaseUrl, sourcePath)
+		if strings.HasSuffix(sourcePath, ".js") {
+			sourcePath = sourcePath[:len(sourcePath)-3]
+		}
+	}
+	var inputPath string
+	var mappedPath string
+	scope := options.Map[mappedSource]
+	if scope != nil {
+		mappedPath = mapSegmentedPath(importPath, scope)
+		if mappedPath != "" {
+			inputPath = mappedPath
+		}
+	}
+	if inputPath == "" {
+		mappedPath = mapSegmentedPath(importPath, options.StarMap)
+		if mappedPath != "" {
+			inputPath = mappedPath
+		} else {
+			inputPath = importPath
+		}
+	}
+	targetPath := mapSegmentedPath(inputPath, options.Paths)
+	if targetPath == "" {
+		targetPath = mappedPath
+	}
+	if targetPath != "" {
+		if !strings.HasSuffix(targetPath, ".js") {
+			targetPath += ".js"
+		}
+		absolutePath := filepath.Join(options.BaseUrl, targetPath)
+		options.backwardPathsMutex.Lock()
+		options.backwardPaths[absolutePath] = importPath
+		options.backwardPathsMutex.Unlock()
+		return targetPath
+	}
+	return mappedPath
+}
+
+func (options *AMDOptions) ModulePathToName(sourcePath string) string {
+	options.backwardPathsMutex.RLock()
+	importPath := options.backwardPaths[sourcePath]
+	options.backwardPathsMutex.RUnlock()
+	return importPath
+}
+
+func (options *AMDOptions) IsExternalModule(importPath string) bool {
+	if importPath == "require" || importPath == "module" || importPath == "exports" || strings.Contains(importPath, "!") {
+		return true
+	}
+	mappedPath := mapSegmentedPath(importPath, options.StarMap)
+	if mappedPath != "" {
+		importPath = mappedPath
+	}
+	if len(options.Paths) > 0 {
+		paths := options.Paths
+		separator := len(importPath)
+		parentPath := importPath
+		for {
+			parentPath := parentPath[:separator]
+			targetPath := paths[parentPath]
+			if targetPath != "" {
+				return strings.HasPrefix(targetPath, "empty:")
+			}
+			separator = strings.LastIndex(parentPath, "/")
+			if separator < 0 {
+				break
+			}
+		}
+	}
+	return false
+}
+
+func mapSegmentedPath(importPath string, paths map[string]string) string {
+	if len(paths) > 0 {
+		separator := len(importPath)
+		parentPath := importPath
+		for {
+			parentPath := parentPath[:separator]
+			targetPath := paths[parentPath]
+			if targetPath != "" {
+				if targetPath == "." {
+					return importPath[separator+1:]
+				}
+				return filepath.Join(targetPath, importPath[separator:])
+			}
+			separator = strings.LastIndex(parentPath, "/")
+			if separator < 0 {
+				break
+			}
+		}
+	}
+	return ""
 }

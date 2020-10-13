@@ -1610,7 +1610,7 @@ func (c *linkerContext) createExportsForFile(sourceIndex uint32) {
 	// If we're an entry point, call the require function at the end of the
 	// bundle right before bundle evaluation ends
 	var cjsWrapStmt js_ast.Stmt
-	if file.isEntryPoint && repr.meta.cjsWrap {
+	if file.isEntryPoint && repr.meta.cjsWrap && !c.options.AMD.Parse {
 		switch c.options.OutputFormat {
 		case config.FormatPreserve:
 			// "require_foo();"
@@ -2013,8 +2013,12 @@ func (c *linkerContext) markPartsReachableFromEntryPoints() {
 			// below, we just append a dummy part to the end of the file with these
 			// dependencies and let the general-purpose reachablity analysis take care
 			// of it.
-			if repr.meta.cjsWrap {
+			if repr.meta.cjsWrap && !c.options.AMD.Parse {
 				runtimeRepr := c.files[runtime.SourceIndex].repr.(*reprJS)
+				// Do not modify dynamic require() statements in AMD modules.
+				if runtimeRepr.ast.IsAMD {
+					continue
+				}
 				commonJSRef := runtimeRepr.ast.NamedExports["__commonJS"]
 				commonJSParts := runtimeRepr.ast.TopLevelSymbolToParts[commonJSRef]
 
@@ -2981,7 +2985,7 @@ func (c *linkerContext) generateCodeForFileInChunkJS(
 	}
 
 	// Optionally wrap all statements in a closure for CommonJS
-	if needsWrapper {
+	if needsWrapper && !c.options.AMD.Parse {
 		// Only include the arguments that are actually used
 		args := []js_ast.Arg{}
 		if repr.ast.UsesExportsRef || repr.ast.UsesModuleRef {
@@ -3351,8 +3355,15 @@ func (repr *chunkReprJS) generate(c *linkerContext, chunk *chunkInfo) func([]ast
 					jMeta.AddString(",")
 				}
 				importAbsPath := c.fs.Join(c.options.AbsOutputDir, chunk.relDir, record.Path.Text)
+				var modulePath string
+				if c.options.AMD.Parse && c.options.AMD.MappedModuleNames {
+					modulePath = c.options.AMD.ModulePathToName(importAbsPath)
+				}
+				if modulePath == "" {
+					modulePath = c.res.PrettyPath(logger.Path{Text: importAbsPath, Namespace: "file"})
+				}
 				jMeta.AddString(fmt.Sprintf("\n        {\n          \"path\": %s\n        }",
-					js_printer.QuoteForJSON(c.res.PrettyPath(logger.Path{Text: importAbsPath, Namespace: "file"}))))
+					js_printer.QuoteForJSON(modulePath)))
 			}
 			if !isFirstMeta {
 				jMeta.AddString("\n      ")
@@ -3423,9 +3434,15 @@ func (repr *chunkReprJS) generate(c *linkerContext, chunk *chunkInfo) func([]ast
 					} else {
 						jMeta.AddString(",")
 					}
+					var modulePath string
+					if c.options.AMD.Parse && c.options.AMD.MappedModuleNames {
+						modulePath = c.options.AMD.ModulePathToName(c.files[compileResult.sourceIndex].source.KeyPath.Text)
+					}
+					if modulePath == "" {
+						modulePath = c.files[compileResult.sourceIndex].source.PrettyPath
+					}
 					jMeta.AddString(fmt.Sprintf("\n        %s: {\n          \"bytesInOutput\": %d\n        }",
-						js_printer.QuoteForJSON(c.files[compileResult.sourceIndex].source.PrettyPath),
-						len(compileResult.JS)))
+						js_printer.QuoteForJSON(modulePath), len(compileResult.JS)))
 				}
 			}
 
