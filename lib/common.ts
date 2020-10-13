@@ -167,6 +167,7 @@ function flagsForBuildOptions(
   let outdir = getFlag(options, keys, 'outdir', mustBeString);
   let outbase = getFlag(options, keys, 'outbase', mustBeString);
   let platform = getFlag(options, keys, 'platform', mustBeString);
+  let amdconfig = getFlag(options, keys, 'amdconfig', mustBeString);
   let tsconfig = getFlag(options, keys, 'tsconfig', mustBeString);
   let resolveExtensions = getFlag(options, keys, 'resolveExtensions', mustBeArray);
   let mainFields = getFlag(options, keys, 'mainFields', mustBeArray);
@@ -191,6 +192,7 @@ function flagsForBuildOptions(
   if (outdir) flags.push(`--outdir=${outdir}`);
   if (outbase) flags.push(`--outbase=${outbase}`);
   if (platform) flags.push(`--platform=${platform}`);
+  if (amdconfig) flags.push(`--amdconfig=${amdconfig}`);
   if (tsconfig) flags.push(`--tsconfig=${tsconfig}`);
   if (resolveExtensions) {
     let values: string[] = [];
@@ -289,6 +291,7 @@ function flagsForAnalyseOptions(options: types.AnalyseOptions, isTTY: boolean, l
   let splitting = getFlag(options, keys, 'splitting', mustBeBoolean);
   let metafile = getFlag(options, keys, 'metafile', mustBeString);
   let platform = getFlag(options, keys, 'platform', mustBeString);
+  let amdconfig = getFlag(options, keys, 'amdconfig', mustBeString);
   let tsconfig = getFlag(options, keys, 'tsconfig', mustBeString);
   let resolveExtensions = getFlag(options, keys, 'resolveExtensions', mustBeArray);
   let mainFields = getFlag(options, keys, 'mainFields', mustBeArray);
@@ -304,6 +307,7 @@ function flagsForAnalyseOptions(options: types.AnalyseOptions, isTTY: boolean, l
   if (splitting) flags.push('--splitting');
   if (metafile) flags.push(`--metafile=${metafile}`);
   if (platform) flags.push(`--platform=${platform}`);
+  if (amdconfig) flags.push(`--amdconfig=${amdconfig}`);
   if (tsconfig) flags.push(`--tsconfig=${tsconfig}`);
   if (resolveExtensions) {
     let values: string[] = [];
