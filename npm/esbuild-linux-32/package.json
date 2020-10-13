@@ -1,8 +1,8 @@
 {
-  "name": "esbuild-linux-32",
+  "name": "@prantlf/esbuild-linux-32",
   "version": "0.8.7",
   "description": "The Linux 32-bit binary for esbuild, a JavaScript bundler.",
-  "repository": "https://github.com/evanw/esbuild",
+  "repository": "https://github.com/prantlf/esbuild",
   "license": "MIT",
   "os": [
     "linux"
