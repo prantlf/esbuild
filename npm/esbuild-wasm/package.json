@@ -1,8 +1,8 @@
 {
-  "name": "esbuild-wasm",
+  "name": "@prantlf/esbuild-wasm",
   "version": "0.8.15",
   "description": "The cross-platform WebAssembly binary for esbuild, a JavaScript bundler.",
-  "repository": "https://github.com/evanw/esbuild",
+  "repository": "https://github.com/prantlf/esbuild",
   "license": "MIT",
   "engines": {
     "node": ">=8"
