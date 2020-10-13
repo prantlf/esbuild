@@ -486,6 +486,7 @@ func buildImpl(buildOpts BuildOptions) BuildResult {
 		ExtensionToLoader: validateLoaders(log, buildOpts.Loader),
 		ExtensionOrder:    validateResolveExtensions(log, buildOpts.ResolveExtensions),
 		ExternalModules:   validateExternals(log, realFS, buildOpts.External),
+		AMDConfig:         validatePath(log, realFS, buildOpts.AMDConfig),
 		TsConfigOverride:  validatePath(log, realFS, buildOpts.Tsconfig),
 		MainFields:        buildOpts.MainFields,
 		PublicPath:        buildOpts.PublicPath,
@@ -544,6 +545,11 @@ func buildImpl(buildOpts BuildOptions) BuildResult {
 		// Use the current directory as the output directory instead of an empty
 		// string because external modules with relative paths need a base directory.
 		options.AbsOutputDir = realFS.Cwd()
+	}
+
+	options.AMD.Init(realFS.Cwd())
+	if len(options.AMDConfig) > 0 {
+		parseAMDConfig(log, realFS, options.AMDConfig, &options.AMD)
 	}
 
 	if !buildOpts.Bundle {
@@ -649,6 +655,143 @@ func buildImpl(buildOpts BuildOptions) BuildResult {
 		Warnings:    convertMessagesToPublic(logger.Warning, msgs),
 		OutputFiles: outputFiles,
 	}
+}
+
+// The "baseUrl" field points to a directory which will be used as a base
+// for resolving module names, which fo not start with "./" or "../".
+//
+// The "paths" field is an object which maps module name prefixes to paths
+// or parts of paths, which will be used to modify the module name before
+// resolving it to a path in the file system.
+//
+// Example:
+//   {
+//     "baseUrl": "src",
+//     "paths": {
+//       "libs": "vendor/libs"
+//     }
+//   }
+func parseAMDConfig(log logger.Log, fs fs.FS, file string, result *config.AMDOptions) bool {
+	result.Parse = true
+	contents, err := fs.ReadFile(file)
+	if err != nil {
+		log.AddError(&logger.Source{
+			KeyPath:    logger.Path{Text: file, Namespace: "file"},
+			PrettyPath: file,
+		}, logger.Loc{}, err.Error())
+		return false
+	}
+	source := logger.Source{
+		KeyPath:    logger.Path{Text: file, Namespace: "file"},
+		PrettyPath: file,
+		Contents:   contents,
+	}
+	json, ok := js_parser.ParseJSON(log, source, js_parser.ParseJSONOptions{
+		AllowComments:       true,
+		AllowTrailingCommas: true,
+	})
+	if !ok {
+		return false
+	}
+
+	if baseUrlJson, baseUrlKeyLoc, ok := getProperty(json, "baseUrl"); ok {
+		if baseUrl, ok := getString(baseUrlJson); ok {
+			if baseUrl, ok = fs.Abs(baseUrl); !ok {
+				log.AddError(&source, baseUrlKeyLoc, "\"baseUrl\" cannot be converted to an absolute path")
+				return false
+			}
+			result.BaseUrl = baseUrl
+		} else {
+			log.AddError(&source, baseUrlKeyLoc, "\"baseUrl\" does not point to a string")
+			return false
+		}
+	}
+
+	if pathsJson, pathsKeyLoc, ok := getProperty(json, "paths"); ok {
+		if pathsObject, ok := pathsJson.Data.(*js_ast.EObject); ok {
+			for _, prop := range pathsObject.Properties {
+				if key, ok := getString(prop.Key); ok {
+					if value, ok := getString(*prop.Value); ok {
+						result.Paths[key] = value
+					} else {
+						log.AddError(&source, pathsKeyLoc, fmt.Sprintf("the key \"%s\" in \"paths\" does not point to a string", key))
+						return false
+					}
+				} else {
+					log.AddError(&source, pathsKeyLoc, "a key in \"paths\" is not a string")
+					return false
+				}
+			}
+		} else {
+			log.AddError(&source, pathsKeyLoc, "\"paths\" does not point to an object")
+			return false
+		}
+	}
+
+	if mapJson, mapKeyLoc, ok := getProperty(json, "map"); ok {
+		if mapObject, ok := mapJson.Data.(*js_ast.EObject); ok {
+			for _, mapProp := range mapObject.Properties {
+				if scopeKey, ok := getString(mapProp.Key); ok {
+					if scopeObject, ok := mapProp.Value.Data.(*js_ast.EObject); ok {
+						var scope map[string]string
+						if scopeKey == "*" {
+							scope = result.StarMap
+						} else {
+							scope = result.Map[scopeKey]
+							if scope == nil {
+								scope = make(map[string]string)
+								result.Map[scopeKey] = scope
+							}
+						}
+						for _, scopeProp := range scopeObject.Properties {
+							if key, ok := getString(scopeProp.Key); ok {
+								if value, ok := getString(*scopeProp.Value); ok {
+									scope[key] = value
+								} else {
+									log.AddError(&source, mapKeyLoc, fmt.Sprintf("the key \"%s\" in \"map\" below \"%s\" does not point to a string", key, scopeKey))
+									return false
+								}
+							} else {
+								log.AddError(&source, mapKeyLoc, fmt.Sprintf("a key in \"map\" below \"%s\" is not a string", scopeKey))
+								return false
+							}
+						}
+					} else {
+						log.AddError(&source, mapKeyLoc, fmt.Sprintf("the key \"%s\" in \"map\" does not point to an object", scopeKey))
+						return false
+					}
+				} else {
+					log.AddError(&source, mapKeyLoc, "a key in \"map\" is not a string")
+					return false
+				}
+			}
+		} else {
+			log.AddError(&source, mapKeyLoc, "\"paths\" does not point to an object")
+			return false
+		}
+	}
+
+	result.MappedModuleNames = len(result.Paths) > 0
+
+	return true
+}
+
+func getProperty(json js_ast.Expr, name string) (js_ast.Expr, logger.Loc, bool) {
+	if obj, ok := json.Data.(*js_ast.EObject); ok {
+		for _, prop := range obj.Properties {
+			if key, ok := getString(prop.Key); ok && key == name {
+				return *prop.Value, prop.Key.Loc, true
+			}
+		}
+	}
+	return js_ast.Expr{}, logger.Loc{}, false
+}
+
+func getString(json js_ast.Expr) (string, bool) {
+	if value, ok := json.Data.(*js_ast.EString); ok {
+		return js_lexer.UTF16ToString(value.Value), true
+	}
+	return "", false
 }
 
 ////////////////////////////////////////////////////////////////////////////////

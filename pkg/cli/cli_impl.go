@@ -198,6 +198,11 @@ func parseOptionsImpl(osArgs []string, buildOpts *api.BuildOptions, transformOpt
 				analyseOpts.Tsconfig = arg[len("--tsconfig="):]
 			}
 
+		case strings.HasPrefix(arg, "--amdconfig="):
+			if buildOpts != nil {
+				buildOpts.AMDConfig = arg[len("--amdconfig="):]
+			}
+
 		case strings.HasPrefix(arg, "--tsconfig-raw=") && transformOpts != nil:
 			transformOpts.TsconfigRaw = arg[len("--tsconfig-raw="):]
 
