@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/evanw/esbuild/internal/compat"
@@ -111,6 +113,17 @@ const (
 	//   export {...};
 	//
 	FormatESModule
+
+	// Just concatenates source modules, which are supposed to be in a
+	// concatenate-able format already. Like the AMD modules, for example.
+	//
+	// This format cannot be selected by the configuration. It will be
+	// chosen automatically when an AMD bundle is going to be produced.
+	//
+	//   define("module1", ...);
+	//   define("module2", ...);
+	//
+	FormatJoin
 )
 
 func (f Format) KeepES6ImportExportSyntax() bool {
@@ -155,6 +168,36 @@ const (
 	ModeBundle
 )
 
+type AMDLoadableScript struct {
+	ReplacementPattern string
+	ReplacementValue   string
+	ReplacementRegexp  *regexp.Regexp
+}
+
+type AMDPlugin struct {
+	FileExtensions      []string
+	AppendFileExtension bool
+	LoadScript          *AMDLoadableScript
+}
+
+type AMDOptions struct {
+	BaseUrl   string
+	Paths     map[string]string
+	Map       map[string]map[string]string
+	StarMap   map[string]string
+	Namespace string
+	Plugins   map[string]*AMDPlugin
+
+	Parse               bool
+	MappedModuleNames   bool
+	KnownFileExtensions map[string]bool
+
+	backwardPaths          map[string]string
+	backwardPathsMutex     *sync.RWMutex
+	pluginExpressions      map[string]string
+	pluginExpressionsMutex *sync.RWMutex
+}
+
 type Options struct {
 	Mode              Mode
 	RemoveWhitespace  bool
@@ -185,6 +228,7 @@ type Options struct {
 	IgnoreDCEAnnotations    bool
 
 	Defines  *ProcessedDefines
+	AMD      AMDOptions
 	TS       TSOptions
 	JSX      JSXOptions
 	Platform Platform
@@ -202,6 +246,7 @@ type Options struct {
 	OutputExtensionJS  string
 	OutputExtensionCSS string
 	GlobalName         []string
+	AMDConfig          string
 	TsConfigOverride   string
 	ExtensionToLoader  map[string]Loader
 	OutputFormat       Format
@@ -333,4 +378,289 @@ type OnLoadResult struct {
 
 	Msgs        []logger.Msg
 	ThrownError error
+}
+
+func (a *AMDLoadableScript) Equal(b *AMDLoadableScript) bool {
+	return a.ReplacementPattern == b.ReplacementPattern &&
+		a.ReplacementValue == b.ReplacementValue &&
+		(a.ReplacementRegexp == nil && b.ReplacementRegexp == nil ||
+			a.ReplacementRegexp != nil && b.ReplacementRegexp != nil &&
+				a.ReplacementRegexp.String() == b.ReplacementRegexp.String())
+}
+
+func (a *AMDPlugin) Equal(b *AMDPlugin) bool {
+	return stringArraysEqual(a.FileExtensions, b.FileExtensions) &&
+		a.AppendFileExtension == b.AppendFileExtension &&
+		(a.LoadScript == nil && b.LoadScript == nil ||
+			a.LoadScript != nil && b.LoadScript != nil && a.LoadScript.Equal(b.LoadScript))
+}
+
+func stringArraysEqual(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x := range a {
+		if x != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *AMDOptions) Equal(b *AMDOptions) bool {
+	if a.BaseUrl != b.BaseUrl || a.Namespace != b.Namespace ||
+		a.Parse != b.Parse || a.MappedModuleNames != b.MappedModuleNames {
+		return false
+	}
+
+	if len(a.Paths) != len(b.Paths) {
+		return false
+	}
+	for k, v := range a.Paths {
+		if v != b.Paths[k] {
+			return false
+		}
+	}
+
+	if len(a.Map) != len(b.Map) {
+		return false
+	}
+	for k, x := range a.Map {
+		y := b.Map[k]
+		if len(x) != len(y) {
+			return false
+		}
+		for z, v := range x {
+			if v != y[z] {
+				return false
+			}
+		}
+	}
+
+	if len(a.StarMap) != len(b.StarMap) {
+		return false
+	}
+	for k, v := range a.StarMap {
+		if v != b.StarMap[k] {
+			return false
+		}
+	}
+
+	if len(a.Plugins) != len(b.Plugins) {
+		return false
+	}
+	for k, v := range a.Plugins {
+		if !v.Equal(b.Plugins[k]) {
+			return false
+		}
+	}
+
+	if len(a.KnownFileExtensions) != len(b.KnownFileExtensions) {
+		return false
+	}
+	for k, v := range a.KnownFileExtensions {
+		if v != b.KnownFileExtensions[k] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (options *AMDOptions) Init(baseUrl string) {
+	options.BaseUrl = baseUrl
+	options.Paths = make(map[string]string)
+	options.Map = make(map[string]map[string]string)
+	options.StarMap = make(map[string]string)
+	options.Plugins = map[string]*AMDPlugin{
+		"json": {
+			FileExtensions:      []string{".json"},
+			AppendFileExtension: false,
+		},
+		"text": {
+			FileExtensions:      []string{".txt"},
+			AppendFileExtension: false,
+		},
+		"css": {
+			FileExtensions:      []string{".css"},
+			AppendFileExtension: true,
+		},
+	}
+	options.KnownFileExtensions = map[string]bool{
+		".js":   true,
+		".json": true,
+		".txt":  true,
+		".css":  true,
+	}
+	options.backwardPaths = make(map[string]string)
+	options.backwardPathsMutex = &sync.RWMutex{}
+	options.pluginExpressions = make(map[string]string)
+	options.pluginExpressionsMutex = &sync.RWMutex{}
+}
+
+// The following configuration:
+//
+// {
+//   "paths": {
+//     "foo":     "foo2",
+//     "foo/bar": "foo/bar2"
+//   }
+// }
+//
+// will map "foo/baz" to "foo2/baz" and "foo/bar/baz" to "foo/bar2/baz"
+// using the longest matching path segment first.
+func (options *AMDOptions) ModuleNameToPath(importPath string, sourcePath string) string {
+	mappedSource := options.ModulePathToName(sourcePath)
+	if mappedSource == "" {
+		mappedSource, _ = filepath.Rel(options.BaseUrl, sourcePath)
+		if strings.HasSuffix(mappedSource, ".js") {
+			mappedSource = mappedSource[:len(mappedSource)-3]
+		}
+	}
+	var inputPath string
+	var mappedPath string
+	scope := options.Map[mappedSource]
+	if scope != nil {
+		mappedPath = mapSegmentedPath(importPath, scope)
+		if mappedPath != "" {
+			inputPath = mappedPath
+		}
+	}
+	if inputPath == "" {
+		mappedPath = mapSegmentedPath(importPath, options.StarMap)
+		if mappedPath != "" {
+			inputPath = mappedPath
+		} else {
+			inputPath = importPath
+		}
+	}
+	targetPath := mapSegmentedPath(inputPath, options.Paths)
+	if targetPath == "" {
+		targetPath = mappedPath
+	}
+	if targetPath != "" {
+		if !options.HasKnownFileExtension(targetPath) {
+			targetPath += ".js"
+		}
+		options.backwardPathsMutex.Lock()
+		options.backwardPaths[targetPath] = importPath
+		options.backwardPathsMutex.Unlock()
+		return targetPath
+	}
+	if mappedPath != "" && !options.HasKnownFileExtension(mappedPath) {
+		mappedPath += ".js"
+	}
+	return mappedPath
+}
+
+func (options *AMDOptions) ModulePathToName(sourcePath string) string {
+	modulePath, _ := filepath.Rel(options.BaseUrl, sourcePath)
+	options.backwardPathsMutex.RLock()
+	importPath := options.backwardPaths[modulePath]
+	options.backwardPathsMutex.RUnlock()
+	return importPath
+}
+
+func (options *AMDOptions) UsesPlugin(importPath string) bool {
+	return strings.Contains(importPath, "!")
+}
+
+func (options *AMDOptions) ParsePluginExpression(importPath string) (string, string, bool) {
+	separator := strings.Index(importPath, "!")
+	if separator > 0 {
+		pluginPrefix := importPath[:separator]
+		if options.Plugins[pluginPrefix] != nil {
+			return pluginPrefix, importPath[separator+1:], true
+		}
+	}
+	return "", "", false
+}
+
+func (options *AMDOptions) PluginExpressionToModulePath(importPath string, moduleName string, sourcePath string) string {
+	separator := strings.Index(importPath, "!")
+	pluginPrefix := importPath[:separator]
+	plugin := options.Plugins[pluginPrefix]
+	importPath = importPath[separator+1:]
+	if plugin.AppendFileExtension {
+		importPath += plugin.FileExtensions[0]
+	}
+	if plugin.LoadScript != nil {
+		importPath = plugin.LoadScript.ReplacementRegexp.ReplaceAllString(importPath, plugin.LoadScript.ReplacementValue)
+	}
+	modulePath := options.ModuleNameToPath(importPath, sourcePath)
+	if modulePath == "" {
+		modulePath = importPath
+		if !options.HasKnownFileExtension(modulePath) {
+			modulePath += ".js"
+		}
+	}
+	if strings.HasPrefix(modulePath, "./") || strings.HasPrefix(modulePath, "../") {
+		modulePath, _ = filepath.Rel(options.BaseUrl, filepath.Join(filepath.Dir(sourcePath), modulePath))
+	}
+	options.pluginExpressionsMutex.Lock()
+	options.pluginExpressions[modulePath] = moduleName
+	options.pluginExpressionsMutex.Unlock()
+	return importPath
+}
+
+func (options *AMDOptions) ModulePathToPluginExpression(sourcePath string) string {
+	modulePath, _ := filepath.Rel(options.BaseUrl, sourcePath)
+	options.pluginExpressionsMutex.RLock()
+	moduleName := options.pluginExpressions[modulePath]
+	options.pluginExpressionsMutex.RUnlock()
+	return moduleName
+}
+
+func (options *AMDOptions) HasKnownFileExtension(sourcePath string) bool {
+	return options.KnownFileExtensions[filepath.Ext(sourcePath)]
+}
+
+func (options *AMDOptions) IsSpecialModule(importPath string) bool {
+	return importPath == "require" || importPath == "module" || importPath == "exports"
+}
+
+func (options *AMDOptions) IsExternalModule(importPath string) bool {
+	mappedPath := mapSegmentedPath(importPath, options.StarMap)
+	if mappedPath != "" {
+		importPath = mappedPath
+	}
+	if len(options.Paths) > 0 {
+		paths := options.Paths
+		separator := len(importPath)
+		parentPath := importPath
+		for {
+			parentPath := parentPath[:separator]
+			targetPath := paths[parentPath]
+			if targetPath != "" {
+				return strings.HasPrefix(targetPath, "empty:")
+			}
+			separator = strings.LastIndex(parentPath, "/")
+			if separator < 0 {
+				break
+			}
+		}
+	}
+	return false
+}
+
+func mapSegmentedPath(importPath string, paths map[string]string) string {
+	if len(paths) > 0 {
+		separator := len(importPath)
+		parentPath := importPath
+		for {
+			parentPath := parentPath[:separator]
+			targetPath := paths[parentPath]
+			if targetPath != "" {
+				if targetPath == "." {
+					return importPath[separator+1:]
+				}
+				return filepath.Join(targetPath, importPath[separator:])
+			}
+			separator = strings.LastIndex(parentPath, "/")
+			if separator < 0 {
+				break
+			}
+		}
+	}
+	return ""
 }
