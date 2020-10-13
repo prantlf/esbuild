@@ -1351,6 +1351,9 @@ type AST struct {
 	UsesExportsRef    bool
 	UsesModuleRef     bool
 
+	// This is a list of AMD features
+	IsAMD bool
+
 	// This is a list of ES6 features
 	HasES6Imports bool
 	HasES6Exports bool
@@ -1369,6 +1372,10 @@ type AST struct {
 	// These are stored at the AST level instead of on individual AST nodes so
 	// they can be manipulated efficiently without a full AST traversal
 	ImportRecords []ast.ImportRecord
+	// Imports marked as external are skipped during parsing. However, they
+	// should be included in the metadata file for dependency analysis,
+	// at least for AMD projects.
+	ExternalImportRecords []ast.ImportRecord
 
 	// These are used when bundling. They are filled in during the parser pass
 	// since we already have to traverse the AST then anyway and the parser pass

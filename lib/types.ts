@@ -41,6 +41,7 @@ export interface BuildOptions extends CommonOptions {
   resolveExtensions?: string[];
   mainFields?: string[];
   write?: boolean;
+  amdconfig?: string;
   tsconfig?: string;
   outExtension?: { [ext: string]: string };
   publicPath?: string;
@@ -184,6 +185,7 @@ export interface AnalyseOptions extends CommonOptions {
   resolveExtensions?: string[];
   mainFields?: string[];
   write?: boolean;
+  amdconfig?: string;
   tsconfig?: string;
 
   entryPoints?: string[];
