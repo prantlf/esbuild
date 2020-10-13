@@ -81,6 +81,9 @@ type linkerContext struct {
 
 	// We may need to refer to the CommonJS "module" symbol for exports
 	unboundModuleRef js_ast.Ref
+
+	// We may need a RequireJS namespace for the define calls
+	amdNamespaceRef js_ast.Ref
 }
 
 // This contains linker-specific metadata corresponding to a "file" struct
@@ -447,6 +450,18 @@ func newLinkerContext(
 		})
 	} else {
 		c.unboundModuleRef = js_ast.InvalidRef
+	}
+
+	if c.options.AMD.Parse && c.options.AMD.Namespace != "" {
+		runtimeSymbols := &c.symbols.Outer[runtime.SourceIndex]
+		runtimeScope := c.files[runtime.SourceIndex].repr.(*reprJS).ast.ModuleScope
+		c.amdNamespaceRef = js_ast.Ref{OuterIndex: runtime.SourceIndex, InnerIndex: uint32(len(*runtimeSymbols))}
+		runtimeScope.Generated = append(runtimeScope.Generated, c.amdNamespaceRef)
+		*runtimeSymbols = append(*runtimeSymbols, js_ast.Symbol{
+			Kind:         js_ast.SymbolUnbound,
+			OriginalName: c.options.AMD.Namespace,
+			Link:         js_ast.InvalidRef,
+		})
 	}
 
 	return c
@@ -1128,7 +1143,7 @@ func (c *linkerContext) scanImportsAndExports() {
 		// resulting wrapper won't be invoked by other files.
 		if repr.meta.cjsStyleExports &&
 			(c.options.OutputFormat == config.FormatIIFE ||
-				c.options.OutputFormat == config.FormatESModule) {
+			c.options.OutputFormat == config.FormatESModule) {
 			repr.meta.cjsWrap = true
 		}
 
@@ -1141,7 +1156,7 @@ func (c *linkerContext) scanImportsAndExports() {
 		for _, record := range repr.ast.ImportRecords {
 			if record.SourceIndex != nil {
 				otherRepr := c.files[*record.SourceIndex].repr.(*reprJS)
-				if otherRepr.meta.cjsStyleExports {
+				if otherRepr.meta.cjsStyleExports && !c.options.AMD.Parse {
 					otherRepr.meta.cjsWrap = true
 				}
 			}
@@ -2056,6 +2071,10 @@ func (c *linkerContext) markPartsReachableFromEntryPoints() {
 			// of it.
 			if repr.meta.cjsWrap {
 				runtimeRepr := c.files[runtime.SourceIndex].repr.(*reprJS)
+				// Do not modify dynamic require() statements in AMD modules.
+				if runtimeRepr.ast.IsAMD {
+					continue
+				}
 				commonJSRef := runtimeRepr.ast.NamedExports["__commonJS"].Ref
 				commonJSParts := runtimeRepr.ast.TopLevelSymbolToParts[commonJSRef]
 
@@ -3037,8 +3056,28 @@ func (c *linkerContext) generateCodeForFileInChunkJS(
 		stmts = mergeAdjacentLocalStmts(stmts)
 	}
 
-	// Optionally wrap all statements in a closure for CommonJS
-	if needsWrapper {
+	if c.options.AMD.Parse {
+		// Rename "define" to "{namespace}.define"
+		if c.options.AMD.Namespace != "" {
+			for _, stmt := range stmts {
+				if sexpr, ok := stmt.Data.(*js_ast.SExpr); ok {
+					if ecall, ok := sexpr.Value.Data.(*js_ast.ECall); ok {
+						if identifier, ok := ecall.Target.Data.(*js_ast.EIdentifier); ok {
+							target := c.symbols.Get(identifier.Ref)
+							if target.OriginalName == "define" || target.OriginalName == "require" {
+								ecall.Target.Data = &js_ast.EDot{
+									Target:  js_ast.Expr{Loc: ecall.Target.Loc, Data: &js_ast.EIdentifier{Ref: c.amdNamespaceRef}},
+									Name:    target.OriginalName,
+									NameLoc: ecall.Target.Loc,
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// Optionally wrap all statements in a closure for CommonJS
+	} else if needsWrapper {
 		// Only include the arguments that are actually used
 		args := []js_ast.Arg{}
 		if repr.ast.UsesExportsRef || repr.ast.UsesModuleRef {
@@ -3436,8 +3475,15 @@ func (repr *chunkReprJS) generate(c *linkerContext, chunk *chunkInfo) func([]ast
 				}
 				chunkBaseWithoutPublicPath := path.Base(record.Path.Text)
 				importAbsPath := c.fs.Join(c.options.AbsOutputDir, chunk.relDir, chunkBaseWithoutPublicPath)
+				var modulePath string
+				if c.options.AMD.Parse && c.options.AMD.MappedModuleNames {
+					modulePath = c.options.AMD.ModulePathToName(importAbsPath)
+				}
+				if modulePath == "" {
+					modulePath = c.res.PrettyPath(logger.Path{Text: importAbsPath, Namespace: "file"})
+				}
 				jMeta.AddString(fmt.Sprintf("\n        {\n          \"path\": %s\n        }",
-					js_printer.QuoteForJSON(c.res.PrettyPath(logger.Path{Text: importAbsPath, Namespace: "file"}), c.options.ASCIIOnly)))
+					js_printer.QuoteForJSON(modulePath, c.options.ASCIIOnly)))
 			}
 			if !isFirstMeta {
 				jMeta.AddString("\n      ")
@@ -3582,7 +3628,13 @@ func (repr *chunkReprJS) generate(c *linkerContext, chunk *chunkInfo) func([]ast
 				// Include this file in the metadata
 				if c.options.AbsMetadataFile != "" {
 					// Accumulate file sizes since a given file may be split into multiple parts
-					path := c.files[compileResult.sourceIndex].source.PrettyPath
+					var path string
+					if c.options.AMD.Parse && c.options.AMD.MappedModuleNames {
+						path = c.options.AMD.ModulePathToName(c.files[compileResult.sourceIndex].source.KeyPath.Text)
+					}
+					if path == "" {
+						path = c.files[compileResult.sourceIndex].source.PrettyPath
+					}
 					if count, ok := metaByteCount[path]; ok {
 						metaByteCount[path] = count + len(js)
 					} else {
