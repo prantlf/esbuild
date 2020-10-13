@@ -1,3 +1,5 @@
-# esbuild
+# @prantlf/esbuild
 
-This is a JavaScript bundler and minifier. See https://github.com/evanw/esbuild and the [JavaScript API documentation](https://github.com/evanw/esbuild/blob/master/docs/js-api.md) for details.
+This is a JavaScript bundler, minifier and analyser. See https://github.com/prantlf/esbuild and the [JavaScript API documentation](https://github.com/prantlf/esbuild/blob/master/docs/js-api.md) for details.
+
+This is an experimental fork of the [original project](https://github.com/evanw/esbuild) to explore the [pure dependency analysis](https://github.com/prantlf/esbuild/commits/analyse) and [AMD.JS support](https://github.com/prantlf/esbuild/commits/amdjs).
