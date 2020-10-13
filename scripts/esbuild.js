@@ -124,10 +124,10 @@ exports.installForTests = dir => {
   const env = { ...process.env, ESBUILD_BIN_PATH_FOR_TESTS: esbuildPath }
   fs.writeFileSync(path.join(dir, 'package.json'), '{}')
   childProcess.execSync(`npm pack --silent "${npmDir}"`, { cwd: dir, stdio: 'inherit' })
-  childProcess.execSync(`npm install --silent --no-audit --progress=false esbuild-${version}.tgz`, { cwd: dir, env, stdio: 'inherit' })
+  childProcess.execSync(`npm install --silent --no-audit --progress=false prantlf-esbuild-${version}.tgz`, { cwd: dir, env, stdio: 'inherit' })
 
   // Evaluate the code
-  return require(path.join(dir, 'node_modules', 'esbuild'))
+  return require(path.join(dir, 'node_modules', '@prantlf', 'esbuild'))
 }
 
 // This is helpful for ES6 modules which don't have access to __dirname

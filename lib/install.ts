@@ -44,7 +44,7 @@ async function installBinaryFromPackage(name: string, fromPath: string, toPath: 
   // If that fails, the user could have npm configured incorrectly or could not
   // have npm installed. Try downloading directly from npm as a last resort.
   if (!buffer) {
-    const url = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
+    const url = `https://registry.npmjs.org/@prantlf/${name}/-/${name}-${version}.tgz`;
     console.error(`Trying to download ${JSON.stringify(url)}`);
     try {
       buffer = extractFileFromTarGzip(await fetch(url), fromPath);
@@ -91,7 +91,7 @@ function validateBinaryVersion(binaryPath: string): void {
 
 function getCachePath(name: string): string {
   const home = os.homedir();
-  const common = ['esbuild', 'bin', `${name}@${version}`];
+  const common = ['@prantlf', 'esbuild', 'bin', `${name}@${version}`];
   if (process.platform === 'darwin') return path.join(home, 'Library', 'Caches', ...common);
   if (process.platform === 'win32') return path.join(home, 'AppData', 'Local', 'Cache', ...common);
   return path.join(home, '.cache', ...common);

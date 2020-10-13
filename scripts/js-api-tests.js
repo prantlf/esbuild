@@ -1500,7 +1500,7 @@ async function main() {
 
     // This randomly fails with EPERM on Windows in CI (GitHub Actions):
     //
-    //   Error: EPERM: operation not permitted: unlink 'esbuild\scripts\.js-api-tests\node_modules\esbuild\esbuild.exe'
+    //   Error: EPERM: operation not permitted: unlink 'esbuild\scripts\.js-api-tests\node_modules\@prantlf\esbuild\esbuild.exe'
     //       at Object.unlinkSync (fs.js)
     //       at fixWinEPERMSync (esbuild\scripts\node_modules\rimraf\rimraf.js)
     //       at rimrafSync (esbuild\scripts\node_modules\rimraf\rimraf.js)

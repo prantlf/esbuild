@@ -1,8 +1,8 @@
 {
-  "name": "esbuild",
+  "name": "@prantlf/esbuild",
   "version": "0.8.5",
-  "description": "An extremely fast JavaScript bundler and minifier.",
-  "repository": "https://github.com/evanw/esbuild",
+  "description": "An extremely fast JavaScript bundler minifier, and analyser with an experimental support for pure dependency analysis and AMD.JS.",
+  "repository": "https://github.com/prantlf/esbuild",
   "scripts": {
     "postinstall": "node install.js"
   },
