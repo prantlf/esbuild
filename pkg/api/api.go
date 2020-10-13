@@ -257,6 +257,7 @@ type BuildOptions struct {
 	MainFields        []string
 	Loader            map[string]Loader
 	ResolveExtensions []string
+	AMDConfig         string
 	Tsconfig          string
 	OutExtensions     map[string]string
 	PublicPath        string

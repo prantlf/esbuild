@@ -48,6 +48,7 @@ var helpText = func(colors logger.Colors) string {
   --watch               Watch mode: rebuild on file system changes
 
 ` + colors.Bold + `Advanced options:` + colors.Default + `
+  --amdconfig=...           Use this amdconfig.json to resolve module paths
   --banner=...              Text to be prepended to each output file
   --charset=utf8            Do not escape UTF-8 code points
   --color=...               Force use of color terminal escapes (true | false)
