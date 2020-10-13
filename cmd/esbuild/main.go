@@ -45,6 +45,7 @@ Options:
                         safari11, edge16, node10, default esnext)
 
 Advanced options:
+  --amdconfig=...           Use this amdconfig.json to resolve module paths
   --avoid-tdz               An optimization for large bundles in Safari
   --banner=...              Text to be prepended to each output file
   --charset=utf8            Do not escape UTF-8 code points

@@ -3,6 +3,7 @@ package js_parser
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -54,6 +55,7 @@ type parser struct {
 	exportsRef               js_ast.Ref
 	requireRef               js_ast.Ref
 	moduleRef                js_ast.Ref
+	defineRef                js_ast.Ref
 	importMetaRef            js_ast.Ref
 	promiseRef               js_ast.Ref
 	findSymbolHelper         config.FindSymbol
@@ -97,6 +99,11 @@ type parser struct {
 	importRecords               []ast.ImportRecord
 	importRecordsForCurrentPart []uint32
 	exportStarImportRecords     []uint32
+	// Imports marked as external to be included in metadata of AMD projects only.
+	externalImportRecords []ast.ImportRecord
+
+	// These are for handling AMD imports and exports
+	isAMD bool
 
 	// These are for handling ES6 imports and exports
 	hasES6ImportSyntax      bool
@@ -194,10 +201,15 @@ type parser struct {
 	typeofRequire               js_ast.E
 	typeofRequireEqualsFn       js_ast.E
 	typeofRequireEqualsFnTarget js_ast.E
+	typeofDefine                js_ast.E
+	defineAmd                   js_ast.E
+	typeofDefineEqualsFn        js_ast.E
+	typeofDefineEqualsFnTarget  js_ast.E
 
 	// This helps recognize calls to "require.resolve()" which may become
 	// ERequireResolve expressions.
 	resolveCallTarget js_ast.E
+	defineAmdTarget   js_ast.E
 
 	// Temporary variables used for lowering
 	tempRefsToDeclare []tempRef
@@ -5620,6 +5632,14 @@ func (p *parser) addImportRecord(kind ast.ImportKind, loc logger.Loc, text strin
 	return index
 }
 
+func (p *parser) addExternalImportRecord(kind ast.ImportKind, loc logger.Loc, text string) {
+	p.externalImportRecords = append(p.externalImportRecords, ast.ImportRecord{
+		Kind:  kind,
+		Range: p.source.RangeOfString(loc),
+		Path:  logger.Path{Text: text},
+	})
+}
+
 func (p *parser) parseFnBody(data fnOrArrowDataParse) js_ast.FnBody {
 	oldFnOrArrowData := p.fnOrArrowDataParse
 	oldAllowIn := p.allowIn
@@ -8382,8 +8402,16 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 		e.Left, _ = p.visitExprInOut(e.Left, exprIn{assignTarget: e.Op.BinaryAssignTarget()})
 
 		// Pattern-match "typeof require == 'function' && ___" from browserify
-		if e.Op == js_ast.BinOpLogicalAnd && e.Left.Data == p.typeofRequireEqualsFn {
-			p.typeofRequireEqualsFnTarget = e.Right.Data
+		// or "typeof define == 'function' && define.amd" from requirejs
+		if e.Op == js_ast.BinOpLogicalAnd {
+			if e.Left.Data == p.typeofRequireEqualsFn {
+				p.typeofRequireEqualsFnTarget = e.Right.Data
+			} else if e.Left.Data == p.typeofDefineEqualsFn {
+				p.typeofDefineEqualsFnTarget = e.Right.Data
+				if e.Right.Data == p.defineAmd {
+					p.defineAmdTarget = e.Right.Data
+				}
+			}
 		}
 
 		// Mark the control flow as dead if the branch is never taken
@@ -8461,8 +8489,12 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 				// match "'function' == typeof require" because some minifiers such as
 				// terser transpose the left and right operands to "==" to form a
 				// different but equivalent expression.
-				if result && (e.Left.Data == p.typeofRequire || e.Right.Data == p.typeofRequire) {
-					p.typeofRequireEqualsFn = data
+				if result {
+					if e.Left.Data == p.typeofRequire || e.Right.Data == p.typeofRequire {
+						p.typeofRequireEqualsFn = data
+					} else if e.Left.Data == p.typeofDefine || e.Right.Data == p.typeofDefine {
+						p.typeofDefineEqualsFn = data
+					}
 				}
 
 				return js_ast.Expr{Loc: expr.Loc, Data: data}, exprOut{}
@@ -8931,10 +8963,17 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 
 			// "typeof require" => "'function'"
 			if p.Mode == config.ModeBundle {
-				if id, ok := e.Value.Data.(*js_ast.EIdentifier); ok && id.Ref == p.requireRef {
-					p.ignoreUsage(p.requireRef)
-					p.typeofRequire = &js_ast.EString{Value: js_lexer.StringToUTF16("function")}
-					return js_ast.Expr{Loc: expr.Loc, Data: p.typeofRequire}, exprOut{}
+				if id, ok := e.Value.Data.(*js_ast.EIdentifier); ok {
+					if id.Ref == p.requireRef || p.AMD.Parse && id.Ref == p.defineRef {
+						p.ignoreUsage(id.Ref)
+						typeof := &js_ast.EString{Value: js_lexer.StringToUTF16("function")}
+						if id.Ref == p.requireRef {
+							p.typeofRequire = typeof
+						} else {
+							p.typeofDefine = typeof
+						}
+						return js_ast.Expr{Loc: expr.Loc, Data: typeof}, exprOut{}
+					}
 				}
 			}
 
@@ -9052,6 +9091,17 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 
 	case *js_ast.EDot:
 		isDeleteTarget := e == p.deleteTarget
+
+		// Prepare to recognize "define.amd" calls
+		if p.AMD.Parse && p.Mode != config.ModePassThrough &&
+			e.OptionalChain == js_ast.OptionalChainNone && e.Name == "amd" {
+			if id, ok := e.Target.Data.(*js_ast.EIdentifier); ok {
+				ref := p.findSymbolHelper(e.Target.Loc, p.loadNameFromRef(id.Ref))
+				if ref == p.defineRef {
+					p.defineAmdTarget = e.Target.Data
+				}
+			}
+		}
 
 		// Check both user-specified defines and known globals
 		if defines, ok := p.Defines.DotDefines[e.Name]; ok {
@@ -9503,13 +9553,16 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 
 		// Track calls to require() so we can use them while bundling
 		if p.Mode != config.ModePassThrough && e.OptionalChain == js_ast.OptionalChainNone {
-			if id, ok := e.Target.Data.(*js_ast.EIdentifier); ok && id.Ref == p.requireRef {
+			id, ok := e.Target.Data.(*js_ast.EIdentifier)
+			if ok && id.Ref == p.requireRef {
 				// Heuristic: omit warnings inside try/catch blocks because presumably
 				// the try/catch statement is there to handle the potential run-time
 				// error from the unbundled require() call failing.
 				omitWarnings := p.fnOrArrowDataVisit.tryBodyCount != 0
 
 				if p.Mode == config.ModeBundle {
+					var error string
+
 					// There must be one argument
 					if len(e.Args) == 1 {
 						return p.maybeTransposeIfExprChain(e.Args[0], func(arg js_ast.Expr) js_ast.Expr {
@@ -9520,6 +9573,15 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 								// never be used.
 								if p.isControlFlowDead {
 									return js_ast.Expr{Loc: arg.Loc, Data: &js_ast.ENull{}}
+								}
+
+								if p.AMD.Parse {
+									p.isAMD = true
+									p.convertModulePathToName(&arg)
+									return js_ast.Expr{Loc: arg.Loc, Data: &js_ast.ECall{
+										Target: js_ast.Expr{Loc: e.Target.Loc, Data: &js_ast.EIdentifier{Ref: id.Ref}},
+										Args:   []js_ast.Expr{arg},
+									}}
 								}
 
 								importRecordIndex := p.addImportRecord(ast.ImportRequire, arg.Loc, js_lexer.UTF16ToString(str.Value))
@@ -9543,14 +9605,111 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 								Args:   []js_ast.Expr{arg},
 							}}
 						}), exprOut{}
-					} else if !omitWarnings {
-						r := js_lexer.RangeOfIdentifier(p.source, e.Target.Loc)
-						p.log.AddRangeWarning(&p.source, r, fmt.Sprintf(
-							"This call to \"require\" will not be bundled because it has %d arguments", len(e.Args)))
+					} else {
+						// Check dynamic require([...], (...) => { ... }) from AMD modules.
+						if p.AMD.Parse && len(e.Args) > 1 && len(e.Args) < 4 {
+							arg := e.Args[0]
+							if dependencies, ok := arg.Data.(*js_ast.EArray); ok {
+								for index, item := range dependencies.Items {
+									if _, ok := item.Data.(*js_ast.EString); !ok {
+										error = fmt.Sprintf("This call to \"require\" will not be bundled because the dependency with the index %d is not a string", index)
+										break
+									}
+								}
+
+								if error == "" {
+									p.isAMD = true
+									p.convertModulePathsToNames(dependencies)
+									return expr, exprOut{
+										childContainsOptionalChain: containsOptionalChain,
+									}
+								}
+							}
+						}
+
+						if !omitWarnings {
+							r := js_lexer.RangeOfIdentifier(p.source, e.Target.Loc)
+							if error == "" {
+								error = fmt.Sprintf(
+									"This call to \"require\" will not be bundled because it has %d arguments", len(e.Args))
+							}
+							p.log.AddRangeWarning(&p.source, r, error)
+						}
 					}
 				} else if p.OutputFormat == config.FormatESModule && !omitWarnings {
 					r := js_lexer.RangeOfIdentifier(p.source, e.Target.Loc)
 					p.log.AddRangeWarning(&p.source, r, "Converting \"require\" to \"esm\" is currently not supported")
+				}
+			} else if ok && p.AMD.Parse && id.Ref == p.defineRef {
+				if p.Mode == config.ModeBundle {
+					var name *js_ast.Expr
+					var dependencies *js_ast.EArray
+					var error string
+
+					argCount := len(e.Args)
+					argIndex := 0
+					if argIndex < argCount {
+						// Ignore calls to define() if the control flow is provably dead here.
+						// We don't want to spend time scanning the required files if they will
+						// never be used.
+						if p.isControlFlowDead {
+							return js_ast.Expr{Loc: expr.Loc, Data: &js_ast.ENull{}}, exprOut{}
+						}
+
+						arg := e.Args[argIndex]
+						// The string argument means the module name
+						if _, ok := arg.Data.(*js_ast.EString); ok {
+							name = &arg
+							argIndex++
+							if argIndex < argCount {
+								arg = e.Args[argIndex]
+							}
+						}
+
+						if argIndex < argCount {
+							// The array argument means the module dependencies
+							if array, ok := arg.Data.(*js_ast.EArray); ok {
+								dependencies = array
+								for index, item := range dependencies.Items {
+									if _, ok := item.Data.(*js_ast.EString); !ok {
+										error = fmt.Sprintf("This call to \"define\" will not be bundled because the dependency with the index %d is not a string", index)
+										break
+									}
+								}
+								if error == "" {
+									argIndex++
+									if argIndex < argCount {
+										arg = e.Args[argIndex]
+									}
+								}
+							}
+
+							if error == "" && argIndex < argCount {
+								// The function argument means the module dependencies
+								_, okObject := arg.Data.(*js_ast.EObject)
+								if _, okFunction := arg.Data.(*js_ast.EFunction); okObject || okFunction {
+									p.isAMD = true
+									p.convertModulePathsToNames(dependencies)
+									if name == nil {
+										p.assignModuleName(e)
+									}
+
+									return expr, exprOut{
+										childContainsOptionalChain: containsOptionalChain,
+									}
+								}
+							}
+						}
+					}
+
+					r := js_lexer.RangeOfIdentifier(p.source, e.Target.Loc)
+					if error == "" {
+						error = "This call to \"define\" will not be bundled because the arguments are not (string?, string[]?, function)"
+					}
+					p.log.AddRangeWarning(&p.source, r, error)
+				} else if p.OutputFormat == config.FormatESModule {
+					r := js_lexer.RangeOfIdentifier(p.source, e.Target.Loc)
+					p.log.AddRangeWarning(&p.source, r, "Converting \"define\" to \"esm\" is currently not supported")
 				}
 			}
 		}
@@ -9659,6 +9818,89 @@ func (p *parser) visitExprInOut(expr js_ast.Expr, in exprIn) (js_ast.Expr, exprO
 	return expr, exprOut{}
 }
 
+func (p *parser) createModuleName(sourcePath string) (string, bool) {
+	// The generated name of the module has to be unique in the whole bundle.
+	if strings.HasPrefix(sourcePath, "./") || strings.HasPrefix(sourcePath, "../") {
+		// If the module p[ath is relative, make it relative to the project base.
+		// Distinct files have naturally unique paths.
+		parentPath := p.source.KeyPath.Text
+		aliasPath := p.AMD.ModulePathToName(parentPath)
+		if aliasPath != "" {
+			sourcePath = filepath.Join(filepath.Dir(aliasPath), sourcePath)
+		} else {
+			sourcePath = filepath.Join(filepath.Dir(parentPath), sourcePath)
+			if !p.AMD.HasKnownFileExtension(sourcePath) {
+				sourcePath += ".js"
+			}
+		}
+	}
+	if filepath.IsAbs(sourcePath) {
+		// If the module path is not relative, check if it is mapped to "empty:",
+		// which means an external module not to be resolved and bundled.
+		aliasPath := p.AMD.ModulePathToName(sourcePath)
+		if aliasPath != "" {
+			return aliasPath, true
+		}
+		if strings.HasSuffix(sourcePath, ".js") {
+			sourcePath = sourcePath[:len(sourcePath)-3]
+		}
+		// If the module path is absolute, the module name should be inferred
+		// from other modules' dependencies, or be relative to the project base.
+		if relativePath, error := filepath.Rel(p.AMD.BaseUrl, sourcePath); error == nil {
+			sourcePath = relativePath
+		}
+	} else if p.AMD.UsesPlugin(sourcePath) {
+		if pluginPrefix, targetModule, ok := p.AMD.ParsePluginExpression(sourcePath); ok {
+			moduleName, resolve := p.createModuleName(targetModule)
+			return pluginPrefix + "!" + moduleName, resolve
+		}
+		return sourcePath, false
+	} else if p.AMD.IsSpecialModule(sourcePath) || p.AMD.IsExternalModule(sourcePath) {
+		// If the module path is not relative, check if it is mapped to "empty:",
+		// which means an external module not to be resolved and bundled.
+		return sourcePath, false
+	}
+	// If the module path is not relative, it has to be either mapped to
+	// or be relative to the project root, which is unique as stated above.
+	return sourcePath, true
+}
+
+func (p *parser) assignModuleName(e *js_ast.ECall) {
+	moduleName := p.AMD.ModulePathToPluginExpression(p.source.KeyPath.Text)
+	if moduleName == "" {
+		moduleName, _ = p.createModuleName(p.source.KeyPath.Text)
+	}
+	e.Args = append([]js_ast.Expr{
+		{Data: &js_ast.EString{Value: js_lexer.StringToUTF16(moduleName)}},
+	}, e.Args...)
+}
+
+func (p *parser) convertModulePathToName(module *js_ast.Expr) {
+	dependency := module.Data.(*js_ast.EString)
+	modulePath := js_lexer.UTF16ToString(dependency.Value)
+	moduleName, resolve := p.createModuleName(modulePath)
+	module.Data = &js_ast.EString{Value: js_lexer.StringToUTF16(moduleName)}
+	if resolve {
+		if p.AMD.UsesPlugin(modulePath) {
+			modulePath = p.AMD.PluginExpressionToModulePath(modulePath, moduleName, p.source.KeyPath.Text)
+		}
+		importRecordIndex := p.addImportRecord(ast.ImportRequire, module.Loc, modulePath)
+		p.importRecords[importRecordIndex].IsInsideTryBody = false
+		p.importRecordsForCurrentPart = append(p.importRecordsForCurrentPart, importRecordIndex)
+	} else if !p.AMD.IsSpecialModule(modulePath) {
+		p.addExternalImportRecord(ast.ImportRequire, module.Loc, modulePath)
+	}
+}
+
+func (p *parser) convertModulePathsToNames(dependencies *js_ast.EArray) {
+	if dependencies != nil {
+		for index, item := range dependencies.Items {
+			p.convertModulePathToName(&item)
+			dependencies.Items[index].Data = item.Data
+		}
+	}
+}
+
 func (p *parser) valueForDefine(loc logger.Loc, assignTarget js_ast.AssignTarget, isDeleteTarget bool, defineFunc config.DefineFunc) js_ast.Expr {
 	expr := js_ast.Expr{Loc: loc, Data: defineFunc(loc, p.findSymbolHelper)}
 	if id, ok := expr.Data.(*js_ast.EIdentifier); ok {
@@ -9731,6 +9973,20 @@ func (p *parser) handleIdentifier(loc logger.Loc, assignTarget js_ast.AssignTarg
 			r := js_lexer.RangeOfIdentifier(p.source, loc)
 			p.log.AddRangeWarning(&p.source, r,
 				"Indirect calls to \"require\" will not be bundled (surround with a try/catch to silence this warning)")
+		}
+	}
+
+	// Warn about uses of "define" other than a direct call
+	if p.AMD.Parse && ref == p.defineRef && e != p.callTarget && e != p.typeofTarget {
+		// "typeof define == 'function' && define"
+		if e == p.typeofDefineEqualsFnTarget {
+			// Become "false" in the browser and "define" in node
+			if p.Platform == config.PlatformBrowser {
+				return js_ast.Expr{Loc: loc, Data: &js_ast.EBoolean{Value: false}}
+			}
+		} else if e != p.defineAmdTarget {
+			r := js_lexer.RangeOfIdentifier(p.source, loc)
+			p.log.AddRangeWarning(&p.source, r, "Indirect calls to \"define\" will not be bundled")
 		}
 	}
 
@@ -10750,15 +11006,62 @@ func LazyExportAST(log logger.Log, source logger.Source, options config.Options,
 		expr = p.callRuntime(expr.Loc, apiCall, []js_ast.Expr{expr})
 	}
 
+	var stmts []js_ast.Stmt
+
+	if options.AMD.Parse {
+		var moduleName string
+		modulePath := source.KeyPath.Text
+		// CSS files do not have source.KeyPath.Text set (???)
+		if modulePath == "" {
+			modulePath = filepath.Join(options.AMD.BaseUrl, source.PrettyPath)
+		}
+		// Take either the name used in dependencies, of use the relative path
+		moduleName = options.AMD.ModulePathToName(modulePath)
+		if moduleName == "" {
+			moduleName, _ = filepath.Rel(options.AMD.BaseUrl, modulePath)
+		}
+		export := expr
+		if strings.HasSuffix(moduleName, ".json") {
+			if _, ok := expr.Data.(*js_ast.EObject); !ok {
+				export = js_ast.Expr{Data: &js_ast.EFunction{Fn: js_ast.Fn{Body: js_ast.FnBody{
+					Stmts: []js_ast.Stmt{{Data: &js_ast.SReturn{Value: &expr}}},
+				}}}}
+			}
+		} else if strings.HasSuffix(moduleName, ".txt") {
+			export = js_ast.Expr{Data: &js_ast.EFunction{Fn: js_ast.Fn{Body: js_ast.FnBody{
+				Stmts: []js_ast.Stmt{{Data: &js_ast.SReturn{Value: &expr}}},
+			}}}}
+		}
+		pluginName := p.AMD.ModulePathToPluginExpression(modulePath)
+		if pluginName != "" {
+			moduleName = pluginName
+		}
+		defineCall := js_ast.Expr{Data: &js_ast.ECall{
+			Target: js_ast.Expr{Data: &js_ast.EIdentifier{Ref: p.defineRef}},
+			Args: []js_ast.Expr{
+				{Data: &js_ast.EString{Value: js_lexer.StringToUTF16(moduleName)}},
+				export,
+			},
+		}}
+		stmts = []js_ast.Stmt{{Loc: expr.Loc, Data: &js_ast.SExpr{Value: defineCall}}}
+	}
+
 	// Defer the actual code generation until linking
+	var hasLazyExport bool
+	if stmts == nil {
+		stmts = []js_ast.Stmt{{Loc: expr.Loc, Data: &js_ast.SLazyExport{Value: expr}}}
+		hasLazyExport = true
+	} else {
+		hasLazyExport = false
+	}
 	part := js_ast.Part{
-		Stmts:      []js_ast.Stmt{js_ast.Stmt{Loc: expr.Loc, Data: &js_ast.SLazyExport{Value: expr}}},
+		Stmts:      stmts,
 		SymbolUses: p.symbolUses,
 	}
 	p.symbolUses = nil
 
 	ast := p.toAST(source, []js_ast.Part{part}, "", "")
-	ast.HasLazyExport = true
+	ast.HasLazyExport = hasLazyExport
 	return ast
 }
 
@@ -10785,10 +11088,16 @@ func (p *parser) prepareForVisitPass(options *config.Options) {
 		p.exportsRef = p.declareCommonJSSymbol(js_ast.SymbolHoisted, "exports")
 		p.requireRef = p.declareCommonJSSymbol(js_ast.SymbolUnbound, "require")
 		p.moduleRef = p.declareCommonJSSymbol(js_ast.SymbolHoisted, "module")
+		if p.AMD.Parse {
+			p.defineRef = p.declareCommonJSSymbol(js_ast.SymbolUnbound, "define")
+		}
 	} else {
 		p.exportsRef = p.newSymbol(js_ast.SymbolHoisted, "exports")
 		p.requireRef = p.newSymbol(js_ast.SymbolUnbound, "require")
 		p.moduleRef = p.newSymbol(js_ast.SymbolHoisted, "module")
+		if p.AMD.Parse {
+			p.defineRef = p.newSymbol(js_ast.SymbolUnbound, "define")
+		}
 	}
 
 	// Convert "import.meta" to a variable if it's not supported in the output format
@@ -11065,12 +11374,16 @@ func (p *parser) toAST(source logger.Source, parts []js_ast.Part, hashbang strin
 		TopLevelSymbolToParts:   p.topLevelSymbolToParts,
 		ExportStarImportRecords: p.exportStarImportRecords,
 		ImportRecords:           p.importRecords,
+		ExternalImportRecords:   p.externalImportRecords,
 		ApproximateLineCount:    int32(p.lexer.ApproximateNewlineCount) + 1,
 
 		// CommonJS features
 		HasTopLevelReturn: p.hasTopLevelReturn,
 		UsesExportsRef:    p.symbols[p.exportsRef.InnerIndex].UseCountEstimate > 0,
 		UsesModuleRef:     p.symbols[p.moduleRef.InnerIndex].UseCountEstimate > 0,
+
+		// AMD features
+		IsAMD: p.isAMD,
 
 		// ES6 features
 		HasES6Imports: p.hasES6ImportSyntax,

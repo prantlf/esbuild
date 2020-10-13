@@ -72,6 +72,7 @@ type file struct {
 
 type fileRepr interface {
 	importRecords() []ast.ImportRecord
+	externalImportRecords() []ast.ImportRecord
 }
 
 type reprJS struct {
@@ -88,6 +89,10 @@ func (repr *reprJS) importRecords() []ast.ImportRecord {
 	return repr.ast.ImportRecords
 }
 
+func (repr *reprJS) externalImportRecords() []ast.ImportRecord {
+	return repr.ast.ExternalImportRecords
+}
+
 type reprCSS struct {
 	ast css_ast.AST
 
@@ -99,6 +104,10 @@ type reprCSS struct {
 
 func (repr *reprCSS) importRecords() []ast.ImportRecord {
 	return repr.ast.ImportRecords
+}
+
+func (repr *reprCSS) externalImportRecords() []ast.ImportRecord {
+	return nil
 }
 
 type Bundle struct {
@@ -619,7 +628,7 @@ func runOnResolvePlugins(
 	// Resolve relative to the resolve directory by default. All paths in the
 	// "file" namespace automatically have a resolve directory. Loader plugins
 	// can also configure a custom resolve directory for files in other namespaces.
-	return res.Resolve(absResolveDir, path, kind), false
+	return res.Resolve(absResolveDir, path, importSource.KeyPath.Text, kind), false
 }
 
 type loaderPluginResult struct {
@@ -966,7 +975,14 @@ func ScanBundle(log logger.Log, fs fs.FS, res resolver.Resolver, entryPaths []st
 
 		// Begin the metadata chunk
 		if options.AbsMetadataFile != "" {
-			j.AddBytes(js_printer.QuoteForJSON(result.file.source.PrettyPath, options.ASCIIOnly))
+			var modulePath string
+			if options.AMD.Parse && options.AMD.MappedModuleNames {
+				modulePath = options.AMD.ModulePathToName(result.file.source.KeyPath.Text)
+			}
+			if modulePath == "" {
+				modulePath = result.file.source.PrettyPath
+			}
+			j.AddBytes(js_printer.QuoteForJSON(modulePath, options.ASCIIOnly))
 			j.AddString(fmt.Sprintf(": {\n      \"bytes\": %d,\n      \"imports\": [", len(result.file.source.Contents)))
 		}
 
@@ -1009,8 +1025,15 @@ func ScanBundle(log logger.Log, fs fs.FS, res resolver.Resolver, entryPaths []st
 					} else {
 						j.AddString(",\n        ")
 					}
+					var modulePath string
+					if options.AMD.Parse && options.AMD.MappedModuleNames {
+						modulePath = options.AMD.ModulePathToName(results[*record.SourceIndex].file.source.KeyPath.Text)
+					}
+					if modulePath == "" {
+						modulePath = results[*record.SourceIndex].file.source.PrettyPath
+					}
 					j.AddString(fmt.Sprintf("{\n          \"path\": %s\n        }",
-						js_printer.QuoteForJSON(results[*record.SourceIndex].file.source.PrettyPath, options.ASCIIOnly)))
+						js_printer.QuoteForJSON(modulePath, options.ASCIIOnly)))
 				}
 
 				// Importing a JavaScript file from a CSS file is not allowed.
@@ -1066,6 +1089,22 @@ func ScanBundle(log logger.Log, fs fs.FS, res resolver.Resolver, entryPaths []st
 						}
 						record.SourceIndex = css.jsSourceIndex
 					}
+				}
+			}
+			if options.AbsMetadataFile != "" {
+				records = result.file.repr.externalImportRecords()
+				for importRecordIndex := range records {
+					record := &records[importRecordIndex]
+
+					// Generate metadata about each external import
+					if isFirstImport {
+						isFirstImport = false
+						j.AddString("\n        ")
+					} else {
+						j.AddString(",\n        ")
+					}
+					j.AddString(fmt.Sprintf("{\n          \"path\": %s\n        }",
+						js_printer.QuoteForJSON(record.Path.Text, options.ASCIIOnly)))
 				}
 			}
 		}
@@ -1175,7 +1214,7 @@ func (b *Bundle) Compile(log logger.Log, options config.Options) []OutputFile {
 	if options.AbsMetadataFile != "" {
 		outputFiles = append(outputFiles, OutputFile{
 			AbsPath:  options.AbsMetadataFile,
-			Contents: b.generateMetadataJSON(outputFiles, options.ASCIIOnly),
+			Contents: b.generateMetadataJSON(outputFiles, &options),
 		})
 	}
 
@@ -1306,7 +1345,7 @@ func (b *Bundle) lowestCommonAncestorDirectory(codeSplitting bool) string {
 	return lowestAbsDir
 }
 
-func (b *Bundle) generateMetadataJSON(results []OutputFile, asciiOnly bool) []byte {
+func (b *Bundle) generateMetadataJSON(results []OutputFile, options *config.Options) []byte {
 	// Sort files by key path for determinism
 	sorted := make(indexAndPathArray, 0, len(b.files))
 	for sourceIndex, file := range b.files {
@@ -1345,8 +1384,15 @@ func (b *Bundle) generateMetadataJSON(results []OutputFile, asciiOnly bool) []by
 			} else {
 				j.AddString(",\n    ")
 			}
-			j.AddString(fmt.Sprintf("%s: ", js_printer.QuoteForJSON(b.res.PrettyPath(
-				logger.Path{Text: result.AbsPath, Namespace: "file"}), asciiOnly)))
+			var modulePath string
+			if options.AMD.Parse && options.AMD.MappedModuleNames {
+				modulePath = options.AMD.ModulePathToName(result.AbsPath)
+			}
+			if modulePath == "" {
+				modulePath = b.res.PrettyPath(
+					logger.Path{Text: result.AbsPath, Namespace: "file"})
+			}
+			j.AddString(fmt.Sprintf("%s: ", js_printer.QuoteForJSON(modulePath, options.ASCIIOnly)))
 			j.AddBytes(result.jsonMetadataChunk)
 		}
 	}
