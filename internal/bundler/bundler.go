@@ -74,6 +74,7 @@ type file struct {
 
 type fileRepr interface {
 	importRecords() *[]ast.ImportRecord
+	externalImportRecords() *[]ast.ImportRecord
 }
 
 type reprJS struct {
@@ -90,6 +91,10 @@ func (repr *reprJS) importRecords() *[]ast.ImportRecord {
 	return &repr.ast.ImportRecords
 }
 
+func (repr *reprJS) externalImportRecords() *[]ast.ImportRecord {
+	return &repr.ast.ExternalImportRecords
+}
+
 type reprCSS struct {
 	ast css_ast.AST
 
@@ -101,6 +106,10 @@ type reprCSS struct {
 
 func (repr *reprCSS) importRecords() *[]ast.ImportRecord {
 	return &repr.ast.ImportRecords
+}
+
+func (repr *reprCSS) externalImportRecords() *[]ast.ImportRecord {
+	return nil
 }
 
 // This is data related to source maps. It's computed in parallel with linking
@@ -697,10 +706,18 @@ func runOnResolvePlugins(
 		}
 	}
 
+	var sourcePath string
+	if importSource != nil {
+		sourcePath = importSource.KeyPath.Text
+	} else {
+		// Entrypoints have no importSource. Just concatenate the project root
+		// and the entrypoint path in that case.
+		sourcePath = fs.Join(absResolveDir, path)
+	}
 	// Resolve relative to the resolve directory by default. All paths in the
 	// "file" namespace automatically have a resolve directory. Loader plugins
 	// can also configure a custom resolve directory for files in other namespaces.
-	return res.Resolve(absResolveDir, path, kind), false
+	return res.Resolve(absResolveDir, path, sourcePath, kind), false
 }
 
 type loaderPluginResult struct {
@@ -1244,7 +1261,14 @@ func (s *scanner) processScannedFiles() []file {
 
 		// Begin the metadata chunk
 		if s.options.AbsMetadataFile != "" {
-			j.AddBytes(js_printer.QuoteForJSON(result.file.source.PrettyPath, s.options.ASCIIOnly))
+			var modulePath string
+			if s.options.AMD.Parse && s.options.AMD.MappedModuleNames {
+				modulePath = s.options.AMD.ModulePathToName(result.file.source.KeyPath.Text)
+			}
+			if modulePath == "" {
+				modulePath = result.file.source.PrettyPath
+			}
+			j.AddBytes(js_printer.QuoteForJSON(modulePath, s.options.ASCIIOnly))
 			j.AddString(fmt.Sprintf(": {\n      \"bytes\": %d,\n      \"imports\": [", len(result.file.source.Contents)))
 		}
 
@@ -1287,8 +1311,15 @@ func (s *scanner) processScannedFiles() []file {
 					} else {
 						j.AddString(",\n        ")
 					}
+					var modulePath string
+					if s.options.AMD.Parse && s.options.AMD.MappedModuleNames {
+						modulePath = s.options.AMD.ModulePathToName(s.results[*record.SourceIndex].file.source.KeyPath.Text)
+					}
+					if modulePath == "" {
+						modulePath = s.results[*record.SourceIndex].file.source.PrettyPath
+					}
 					j.AddString(fmt.Sprintf("{\n          \"path\": %s,\n          \"kind\": %s\n        }",
-						js_printer.QuoteForJSON(s.results[*record.SourceIndex].file.source.PrettyPath, s.options.ASCIIOnly),
+						js_printer.QuoteForJSON(modulePath, s.options.ASCIIOnly),
 						js_printer.QuoteForJSON(record.Kind.StringForMetafile(), s.options.ASCIIOnly)))
 				}
 
@@ -1372,6 +1403,24 @@ func (s *scanner) processScannedFiles() []file {
 						s.log.AddRangeWarningWithNotes(&result.file.source, record.Range,
 							fmt.Sprintf("Ignoring this import because %q was marked as having no side effects",
 								otherFile.source.PrettyPath), notes)
+					}
+				}
+			}
+			if s.options.AbsMetadataFile != "" {
+				records := result.file.repr.externalImportRecords()
+				if records != nil {
+					for importRecordIndex := range *records {
+						record := &(*records)[importRecordIndex]
+
+						// Generate metadata about each external import
+						if isFirstImport {
+							isFirstImport = false
+							j.AddString("\n        ")
+						} else {
+							j.AddString(",\n        ")
+						}
+						j.AddString(fmt.Sprintf("{\n          \"path\": %s\n        }",
+							js_printer.QuoteForJSON(record.Path.Text, s.options.ASCIIOnly)))
 					}
 				}
 			}
@@ -1483,7 +1532,7 @@ func (b *Bundle) Compile(log logger.Log, options config.Options) []OutputFile {
 	if options.AbsMetadataFile != "" {
 		outputFiles = append(outputFiles, OutputFile{
 			AbsPath:  options.AbsMetadataFile,
-			Contents: b.generateMetadataJSON(outputFiles, allReachableFiles, options.ASCIIOnly),
+			Contents: b.generateMetadataJSON(outputFiles, allReachableFiles, &options),
 		})
 	}
 
@@ -1679,7 +1728,7 @@ func (b *Bundle) lowestCommonAncestorDirectory(codeSplitting bool, allReachableF
 	return lowestAbsDir
 }
 
-func (b *Bundle) generateMetadataJSON(results []OutputFile, allReachableFiles []uint32, asciiOnly bool) []byte {
+func (b *Bundle) generateMetadataJSON(results []OutputFile, allReachableFiles []uint32, options *config.Options) []byte {
 	j := js_printer.Joiner{}
 	j.AddString("{\n  \"inputs\": {")
 
@@ -1718,8 +1767,15 @@ func (b *Bundle) generateMetadataJSON(results []OutputFile, allReachableFiles []
 			} else {
 				j.AddString(",\n    ")
 			}
+			var modulePath string
+			if options.AMD.Parse && options.AMD.MappedModuleNames {
+				modulePath = options.AMD.ModulePathToName(result.AbsPath)
+			}
+			if modulePath == "" {
+				modulePath = path
+			}
 			paths[path] = true
-			j.AddString(fmt.Sprintf("%s: ", js_printer.QuoteForJSON(path, asciiOnly)))
+			j.AddString(fmt.Sprintf("%s: ", js_printer.QuoteForJSON(path, options.ASCIIOnly)))
 			j.AddBytes(result.jsonMetadataChunk)
 		}
 	}

@@ -111,7 +111,7 @@ type ResolveResult struct {
 }
 
 type Resolver interface {
-	Resolve(sourceDir string, importPath string, kind ast.ImportKind) *ResolveResult
+	Resolve(sourceDir string, importPath string, sourcePath string, kind ast.ImportKind) *ResolveResult
 	ResolveAbs(absPath string) *ResolveResult
 	PrettyPath(path logger.Path) string
 
@@ -190,7 +190,7 @@ func NewResolver(fs fs.FS, log logger.Log, caches *cache.CacheSet, options confi
 	}
 }
 
-func (r *resolver) Resolve(sourceDir string, importPath string, kind ast.ImportKind) *ResolveResult {
+func (r *resolver) Resolve(sourceDir string, importPath string, sourcePath string, kind ast.ImportKind) *ResolveResult {
 	// Certain types of URLs default to being external for convenience
 	if r.isExternalPattern(importPath) ||
 
@@ -224,7 +224,7 @@ func (r *resolver) Resolve(sourceDir string, importPath string, kind ast.ImportK
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	result := r.resolveWithoutSymlinks(sourceDir, importPath, kind)
+	result := r.resolveWithoutSymlinks(sourceDir, importPath, sourcePath, kind)
 	if result == nil {
 		return nil
 	}
@@ -350,7 +350,7 @@ func (r *resolver) finalizeResolve(result ResolveResult) *ResolveResult {
 	return &result
 }
 
-func (r *resolver) resolveWithoutSymlinks(sourceDir string, importPath string, kind ast.ImportKind) *ResolveResult {
+func (r *resolver) resolveWithoutSymlinks(sourceDir string, importPath string, sourcePath string, kind ast.ImportKind) *ResolveResult {
 	// This implements the module resolution algorithm from node.js, which is
 	// described here: https://nodejs.org/api/modules.html#modules_all_together
 	var result PathPair
@@ -468,6 +468,17 @@ func (r *resolver) resolveWithoutSymlinks(sourceDir string, importPath string, k
 
 		if absolute, ok := r.resolveWithoutRemapping(sourceDirInfo, importPath, kind); ok {
 			result = absolute
+		} else if r.options.AMD.Parse {
+			// AMD module paths that are not relative are supposed to be based on the baseUrl
+			// and before that, they can be mapped to a different path.
+			if mappedPath := r.options.AMD.ModuleNameToPath(importPath, sourcePath); mappedPath != "" {
+				importPath = mappedPath
+			}
+			if absolute, ok = r.loadAsFileOrDirectory(r.fs.Join(r.options.AMD.BaseUrl, importPath), kind); ok {
+				result = absolute
+			} else {
+				return nil
+			}
 		} else {
 			// Note: node's "self references" are not currently supported
 			return nil
