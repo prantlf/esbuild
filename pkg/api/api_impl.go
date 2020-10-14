@@ -952,6 +952,7 @@ func analyseImpl(analyseOpts AnalyseOptions) AnalyseResult {
 		ExtensionToLoader: validateLoaders(log, analyseOpts.Loader),
 		ExtensionOrder:    validateResolveExtensions(log, analyseOpts.ResolveExtensions),
 		ExternalModules:   validateExternals(log, realFS, analyseOpts.External),
+		AMDConfig:         validatePath(log, realFS, analyseOpts.AMDConfig),
 		TsConfigOverride:  validatePath(log, realFS, analyseOpts.Tsconfig),
 		MainFields:        analyseOpts.MainFields,
 	}

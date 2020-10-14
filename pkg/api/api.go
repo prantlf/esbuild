@@ -359,6 +359,7 @@ type AnalyseOptions struct {
 	MainFields        []string
 	Loader            map[string]Loader
 	ResolveExtensions []string
+	AMDConfig         string
 	Tsconfig          string
 
 	EntryPoints []string
