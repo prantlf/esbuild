@@ -27,11 +27,11 @@ Options:
                         safari11, edge16, node10, default esnext)
   --platform=...        Platform target (browser | node, default browser)
   --external:M          Exclude module M from the bundle
-  --format=...          Output format (iife | cjs | esm, no default when not
-                        bundling, otherwise default is iife when platform
-                        is browser and cjs when platform is node)
+  --format=...          Output format (iife | cjs | umd | esm, no default
+                        when not bundling, otherwise default is iife when
+                        platform is browser and cjs when platform is node)
   --splitting           Enable code splitting (currently only for esm)
-  --global-name=...     The name of the global for the IIFE format
+  --global-name=...     The name of the global for the IIFE or UMD formats
 
   --minify              Sets all --minify-* flags
   --minify-whitespace   Remove whitespace
