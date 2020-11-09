@@ -30,10 +30,10 @@ Options:
   --bundle              Bundle all dependencies into the output files
   --define:K=V          Substitute K with V while parsing
   --external:M          Exclude module M from the bundle
-  --format=...          Output format (iife | cjs | esm, no default when not
-                        bundling, otherwise default is iife when platform
-                        is browser and cjs when platform is node)
-  --global-name=...     The name of the global for the IIFE format
+  --format=...          Output format (iife | cjs | umd | esm, no default
+                        when not bundling, otherwise default is iife when
+                        platform is browser and cjs when platform is node)
+  --global-name=...     The name of the global for the IIFE or UMD formats
   --jsx-factory=...     What to use instead of React.createElement
   --jsx-fragment=...    What to use instead of React.Fragment
   --loader:X=L          Use loader L to load file extension X, where L is
